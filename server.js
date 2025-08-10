@@ -7,6 +7,8 @@ const fs = require('fs');
 const { createClient } = require('@supabase/supabase-js');
 require('dotenv').config();
 
+const WRITE_ENABLED = !['false', '0', 'no'].includes(String(process.env.WRITE_ENABLED || 'true').toLowerCase());
+
 // Konfiguration aus Environment Variables laden
 const appConfig = {
   display: {
@@ -72,7 +74,8 @@ async function loadFirstContactsFromDB() {
   try {
     const { data, error } = await supabase
       .from('first_contacts')
-      .select('*');
+      .select('*')
+      .neq('status', 'Vergangen');
     
     if (error) {
       console.log('⚠️ Supabase first_contacts Fehler:', error.message);
@@ -130,7 +133,7 @@ async function loadRecentPastFromDB() {
 
 // First Contact in Supabase speichern/updaten
 async function saveFirstContactToDB(callsign, contactData) {
-  if (!supabase) return saveFirstContactData();
+  if (!supabase || !WRITE_ENABLED) return true;
   
   try {
     const { error } = await supabase
@@ -156,30 +159,44 @@ async function saveFirstContactToDB(callsign, contactData) {
   }
 }
 
-// Recent Past in Supabase speichern
+// First Contact in Supabase löschen
+async function deleteFirstContactFromDB(callsign) {
+  if (!supabase || !WRITE_ENABLED) return true;
+  try {
+    const { error } = await supabase
+      .from('first_contacts')
+      .delete()
+      .eq('callsign', callsign);
+    if (error) {
+      console.log('⚠️ Supabase deleteFirstContact Fehler:', error.message);
+      return false;
+    }
+    return true;
+  } catch (error) {
+    console.log('⚠️ Supabase deleteFirstContact Fehler:', error.message);
+    return false;
+  }
+}
+
+// Recent Past in Supabase speichern (idempotent pro Callsign)
 async function saveRecentPastToDB(pastData) {
-  if (!supabase) return saveRecentPast();
+  if (!supabase || !WRITE_ENABLED) return true;
   
   try {
-    // Zuerst alte Einträge löschen
-    await supabase.from('recent_past').delete().neq('id', 0);
-    
-    // Neue Einträge einfügen
-    if (pastData.length > 0) {
+    // Für jeden Eintrag: vorhandenen mit gleichem Callsign löschen, dann einfügen
+    for (const item of pastData) {
+      await supabase.from('recent_past').delete().eq('callsign', item.callsign);
       const { error } = await supabase
         .from('recent_past')
-        .insert(pastData.map(item => ({
+        .insert({
           callsign: item.callsign,
           first_time: item.firstTime,
           last_active_iso: item.lastActiveIso
-        })));
-      
+        });
       if (error) {
-        console.log('⚠️ Supabase saveRecentPast Fehler:', error.message);
-        return false;
+        console.log('⚠️ Supabase saveRecentPast (row) Fehler:', error.message);
       }
     }
-    
     return true;
   } catch (error) {
     console.log('⚠️ Supabase saveRecentPast Fehler:', error.message);
@@ -189,17 +206,14 @@ async function saveRecentPastToDB(pastData) {
 
 // Alte First Contacts aus Supabase löschen
 async function cleanFirstContactsDB() {
-  if (!supabase) return cleanFirstContacts();
+  if (!supabase || !WRITE_ENABLED) return true;
   
   try {
-    const cutoffTime = new Date();
-    cutoffTime.setMinutes(cutoffTime.getMinutes() - PAST_RETENTION_MINUTES);
-    
+    // Entferne alle bereits als 'Vergangen' markierten Einträge direkt
     const { error } = await supabase
       .from('first_contacts')
       .delete()
-      .eq('status', 'Vergangen')
-      .lt('last_active_iso', cutoffTime.toISOString());
+      .eq('status', 'Vergangen');
     
     if (error) {
       console.log('⚠️ Supabase cleanFirstContacts Fehler:', error.message);
@@ -418,7 +432,7 @@ function buildFallbackAircraft() {
   const cached = cache.get('aircraft');
   if (cached && cached.length) return cached;
   return recentPast.slice(0, appConfig.filtering?.maxDisplayCount || 7).map(e => ({
-    time: e.firstTime,
+    time: formatTimeForDisplay(e.firstTime),
     callsign: displayNameForCallsign(e.callsign),
     code: e.callsign,
     direction: '-', // Keine Richtungsdaten für vergangene Flüge
@@ -506,6 +520,23 @@ function degreesToDirection(degrees) {
   const directions = ['N', 'NO', 'O', 'SO', 'S', 'SW', 'W', 'NW'];
   const index = Math.round(degrees / 45) % 8;
   return directions[index];
+}
+
+// Hilfsfunktion: ISO-Zeit zu HH:MM Format konvertieren
+function formatTimeForDisplay(isoTime) {
+  if (!isoTime) return '-';
+  try {
+    const date = new Date(isoTime);
+    if (isNaN(date.getTime())) return '-';
+    return date.toLocaleTimeString('de-DE', { 
+      hour: '2-digit', 
+      minute: '2-digit',
+      hour12: false 
+    });
+  } catch (error) {
+    console.error('Fehler beim Formatieren der Zeit:', error);
+    return '-';
+  }
 }
 
 // Flugzeuge im Luftraum abrufen
@@ -620,16 +651,24 @@ async function getAircraftInAirspace() {
         meta.status = status;
         if (prev === 'Im Luftraum' && status === 'Vergangen' && meta.lastActiveIso) {
           upsertRecentPast({ callsign: callsignRaw, firstTime: meta.firstTime, lastActiveIso: meta.lastActiveIso });
+          // Sofort aus first_contacts entfernen
+          delete firstContactData[callsignRaw];
+          if (supabase) {
+            deleteFirstContactFromDB(callsignRaw);
+          }
         }
         
         if (supabase) {
-          saveFirstContactToDB(callsignRaw, meta);
+          // Nur speichern, wenn noch vorhanden (nicht gerade gelöscht)
+          if (firstContactData[callsignRaw]) {
+            saveFirstContactToDB(callsignRaw, meta);
+          }
         } else {
           saveFirstContactData();
         }
         
         return {
-          time: meta.firstTime, // Erstkontakt Zeit verwenden
+          time: formatTimeForDisplay(meta.firstTime), // Erstkontakt Zeit verwenden
           callsign: callsign,
           code: callsignRaw,
           direction: direction, // Aktuelle Richtung
@@ -646,10 +685,15 @@ async function getAircraftInAirspace() {
     for (const [cs, meta] of Object.entries(firstContactData)) {
       if (typeof meta !== 'object') continue;
       if (meta.status === 'Im Luftraum' && !seenNow.has(cs)) {
-        // Als vergangen markieren
+        // Als vergangen markieren und direkt verschieben
         meta.status = 'Vergangen';
         if (meta.lastActiveIso) {
           upsertRecentPast({ callsign: cs, firstTime: meta.firstTime, lastActiveIso: meta.lastActiveIso });
+        }
+        // Sofort aus first_contacts entfernen
+        delete firstContactData[cs];
+        if (supabase) {
+          deleteFirstContactFromDB(cs);
         }
       }
     }
@@ -678,7 +722,7 @@ async function getAircraftInAirspace() {
             return meta.lastActiveIso && meta.status === 'Vergangen' && !exists;
           })
           .map(([cs, meta]) => ({
-            time: meta.firstTime,
+            time: formatTimeForDisplay(meta.firstTime),
             callsign: displayNameForCallsign(cs),
             code: cs,
             direction: meta.direction || '-', // Gespeicherte Richtung verwenden
@@ -696,7 +740,7 @@ async function getAircraftInAirspace() {
         .filter(e => !augmented.some(a => (a.code || a.callsign) === e.callsign))
         .slice(0, need)
         .map(e => ({
-          time: e.firstTime,
+          time: formatTimeForDisplay(e.firstTime),
           callsign: displayNameForCallsign(e.callsign),
           code: e.callsign,
           direction: '-', // Keine Richtungsdaten für vergangene Flüge
@@ -710,10 +754,19 @@ async function getAircraftInAirspace() {
       aircraft = augmented;
     }
       // Doppelte entfernen (bevorzugt aktuelle Einträge)
-      aircraft = aircraft.reduce((acc, cur) => {
-        if (!acc.find(a => (a.code || a.callsign) === (cur.code || cur.callsign))) acc.push(cur);
-        return acc;
-      }, []);
+      const seenCallsigns = new Set();
+      aircraft = aircraft.filter(item => {
+        const callsign = item.code || item.callsign;
+        if (seenCallsigns.has(callsign)) {
+          // Bei Duplikaten: Behalte den aktiven Flug, sonst den ersten
+          const existing = aircraft.find(a => (a.code || a.callsign) === callsign);
+          if (existing && existing.status === 'Im Luftraum' && item.status !== 'Im Luftraum') {
+            return false; // Entferne den vergangenen Flug
+          }
+        }
+        seenCallsigns.add(callsign);
+        return true;
+      });
       // Retention: Vergangene Flüge nach Karenzzeit ausblenden
       aircraft = aircraft.filter(item => {
         if (item.status === 'Im Luftraum') return true;
@@ -769,11 +822,11 @@ app.get('/api/aircraft', async (req, res) => {
     }
     
     res.json({
-      title: config.title,
+      title: appConfig.display.title,
       aircraft: aircraft,
       timestamp: new Date().toISOString(),
-      coordinates: config.coordinates,
-      radius: config.radius
+      coordinates: { lat: parseFloat(process.env.LAT) || 48.3705, lon: parseFloat(process.env.LON) || 7.8819 },
+      radius: appConfig.display.radius
     });
   } catch (error) {
     console.error('API Fehler:', error);
@@ -782,38 +835,36 @@ app.get('/api/aircraft', async (req, res) => {
 });
 
 app.get('/api/config', (req, res) => {
-  res.json(config);
+  res.json(appConfig);
 });
 
 // Debug endpoint for Render troubleshooting
-app.get('/api/debug', async (req, res) => {
-  try {
-          const debugInfo = {
-        timestamp: new Date().toISOString(),
-        environment: process.env.NODE_ENV || 'development',
-        hasOpenSkyCredentials: !!(process.env.OPENSKY_USERNAME && process.env.OPENSKY_PASSWORD),
-        hasSupabaseCredentials: !!(process.env.SUPABASE_URL && process.env.SUPABASE_ANON_KEY),
-        usingSupabase: !!supabase,
-        cacheStatus: {
-          aircraftCached: !!cache.get('aircraft'),
-          tokenCached: !!tokenCache.get('access_token')
-        },
-        lastRequestTime: cache.get('lastRequestTime') || 'never'
-      };
-    
-    // Test OpenSky connectivity (ohne echte API calls)
-    const testUrl = 'https://opensky-network.org';
-    try {
-      const testResponse = await axios.get(testUrl, { timeout: 5000 });
-      debugInfo.openskyConnectivity = 'OK';
-    } catch (error) {
-      debugInfo.openskyConnectivity = `Error: ${error.message}`;
+app.get('/api/debug', (req, res) => {
+  const debugInfo = {
+    timestamp: new Date().toISOString(),
+    config: appConfig,
+    hasSupabaseCredentials: !!(process.env.SUPABASE_URL && process.env.SUPABASE_ANON_KEY),
+    usingSupabase: !!supabase,
+    cacheStats: {
+      apiCache: cache.getStats(),
+      tokenCache: tokenCache.getStats()
+    },
+    firstContactsCount: Object.keys(firstContactData).length,
+    recentPastCount: recentPast.length,
+    timeDebug: {
+      currentTime: new Date().toLocaleTimeString('de-DE'),
+      currentTimeISO: new Date().toISOString(),
+      sampleFirstContact: Object.values(firstContactData)[0] || 'Keine Daten',
+      sampleRecentPast: recentPast[0] || 'Keine Daten'
+    },
+    duplicateCheck: {
+      firstContactsKeys: Object.keys(firstContactData),
+      recentPastCallsigns: recentPast.map(e => e.callsign),
+      potentialDuplicates: recentPast.map(e => e.callsign).filter((cs, i, arr) => arr.indexOf(cs) !== i)
     }
-    
-    res.json(debugInfo);
-  } catch (error) {
-    res.status(500).json({ error: error.message });
-  }
+  };
+  
+  res.json(debugInfo);
 });
 
 // Hauptseite
