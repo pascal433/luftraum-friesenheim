@@ -1,39 +1,16 @@
 {
   "version": 2,
   "builds": [
-    {
-      "src": "server.js",
-      "use": "@vercel/node"
-    },
-    {
-      "src": "public/**",
-      "use": "@vercel/static"
-    },
-    {
-      "src": "airlines.json",
-      "use": "@vercel/static"
-    }
+    { "src": "server.js", "use": "@vercel/node" },
+    { "src": "public/**", "use": "@vercel/static" }
   ],
   "routes": [
-    {
-      "src": "/api/(.*)",
-      "dest": "/server.js"
-    },
-    {
-      "src": "/styles.css",
-      "dest": "/public/styles.css"
-    },
-    {
-      "src": "/script.js", 
-      "dest": "/public/script.js"
-    },
-    {
-      "src": "/airlines.json",
-      "dest": "/airlines.json"
-    },
-    {
-      "src": "/(.*)",
-      "dest": "/server.js"
-    }
+    { "src": "/api/(.*)", "dest": "/server.js" },
+    { "src": "/styles.css", "dest": "/public/styles.css" },
+    { "src": "/script.js", "dest": "/public/script.js" },
+    { "src": "/(.*)", "dest": "/server.js" }
+  ],
+  "crons": [
+    { "path": "/api/poll", "schedule": "*/2 * * * *" }
   ]
 }

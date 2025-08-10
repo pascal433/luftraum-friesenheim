@@ -869,6 +869,22 @@ app.get('/api/aircraft', async (req, res) => {
   }
 });
 
+// Polling-Endpoint für Cron (aktualisiert DB, liefert kurzen Status)
+app.get('/api/poll', async (req, res) => {
+  try {
+    if (supabase) {
+      await ensureInitialLoad();
+    }
+    // Force refresh by clearing rate guard cache key to avoid skipping
+    cache.del('lastRequestTime');
+    const result = await getAircraftInAirspace();
+    res.json({ ok: true, updated: Array.isArray(result) ? result.length : 0, timestamp: new Date().toISOString(), writeEnabled: WRITE_ENABLED });
+  } catch (e) {
+    console.error('Poll Fehler:', e);
+    res.status(500).json({ ok: false, error: e?.message || String(e) });
+  }
+});
+
 // Debug endpoint for Render troubleshooting
 app.get('/api/debug', (req, res) => {
   const debugInfo = {
