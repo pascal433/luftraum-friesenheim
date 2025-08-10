@@ -145,42 +145,8 @@ async function deleteFirstContactFromDB(callsign) {
   }
 }
 
-// Recent Past in Supabase speichern (idempotent pro Callsign)
-async function saveRecentPastToDB(pastData) {
-  if (!supabase || !WRITE_ENABLED) return true;
-  
-  try {
-    const maxN = appConfig.data?.maxRecentPast || 7;
-    for (const item of pastData) {
-      await supabase.from('recent_past').delete().eq('callsign', item.callsign);
-      const { error } = await supabase
-        .from('recent_past')
-        .insert({
-          callsign: item.callsign,
-          first_time: item.firstTime,
-          last_active_iso: item.lastActiveIso,
-          direction: item.direction || null
-        });
-      if (error) {
-        console.log('⚠️ Supabase saveRecentPast (row) Fehler:', error.message);
-      }
-    }
-    // Prune table to maxN rows (keep newest by last_active_iso)
-    const { data: idsToDelete, error: selErr } = await supabase
-      .from('recent_past')
-      .select('id')
-      .order('last_active_iso', { ascending: false })
-      .range(maxN, 10000);
-    if (!selErr && idsToDelete && idsToDelete.length > 0) {
-      const delIds = idsToDelete.map(r => r.id);
-      await supabase.from('recent_past').delete().in('id', delIds);
-    }
-    return true;
-  } catch (error) {
-    console.log('⚠️ Supabase saveRecentPast Fehler:', error.message);
-    return false;
-  }
-}
+// Recent Past in Supabase speichern (legacy, no longer used)
+// Removed legacy recent_past logic
 
 // Recent Past: einzelne Zeile idempotent in DB upserten
 async function upsertRecentPastRowToDB(entry) {
@@ -872,10 +838,14 @@ app.get('/api/aircraft', async (req, res) => {
 // Polling-Endpoint für Cron (aktualisiert DB, liefert kurzen Status)
 app.get('/api/poll', async (req, res) => {
   try {
+    const token = req.query && req.query.token;
+    const expected = process.env.POLL_SECRET;
+    if (expected && token !== expected) {
+      return res.status(401).json({ ok: false, error: 'unauthorized' });
+    }
     if (supabase) {
       await ensureInitialLoad();
     }
-    // Force refresh by clearing rate guard cache key to avoid skipping
     cache.del('lastRequestTime');
     const result = await getAircraftInAirspace();
     lastCronPoll.timestamp = new Date().toISOString();

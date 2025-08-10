@@ -9,8 +9,5 @@
     { "src": "/styles.css", "dest": "/public/styles.css" },
     { "src": "/script.js", "dest": "/public/script.js" },
     { "src": "/(.*)", "dest": "/server.js" }
-  ],
-  "crons": [
-    { "path": "/api/poll", "schedule": "* * * * *" }
   ]
 }
