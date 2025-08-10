@@ -772,19 +772,31 @@ async function fetchAircraftSnapshotFromDB() {
   if (!supabase) return null;
   const maxPast = appConfig.data?.maxRecentPast || 7;
   try {
+    // Try case-insensitive status filters first
     const [{ data: active, error: errA }, { data: past, error: errP }] = await Promise.all([
       supabase.from('first_contacts')
         .select('callsign, first_time, status, direction, display_name')
-        .eq('status', 'Im Luftraum'),
+        .ilike('status', 'Im Luftraum%'),
       supabase.from('first_contacts')
         .select('callsign, first_time, status, direction, display_name')
-        .eq('status', 'Vergangen')
+        .ilike('status', 'Vergangen%')
         .order('first_time', { ascending: false })
         .limit(maxPast)
     ]);
     if (errA) throw errA;
     if (errP) throw errP;
     let rows = [...(active || []), ...(past || [])];
+
+    // Fallback: if nothing returned, get latest rows regardless of status
+    if (!rows || rows.length === 0) {
+      const { data: anyRows, error: anyErr } = await supabase
+        .from('first_contacts')
+        .select('callsign, first_time, status, direction, display_name')
+        .order('first_time', { ascending: false })
+        .limit(maxPast);
+      if (!anyErr && anyRows) rows = anyRows;
+    }
+
     let list = rows.map(r => {
       const display = r.display_name || r.callsign;
       return {
@@ -804,8 +816,8 @@ async function fetchAircraftSnapshotFromDB() {
       return (hours || 0) * 60 + (minutes || 0);
     };
     list = list.sort((a, b) => {
-      if (a.status === 'Im Luftraum' && b.status !== 'Im Luftraum') return -1;
-      if (a.status !== 'Im Luftraum' && b.status === 'Im Luftraum') return 1;
+      if ((a.status || '').startsWith('Im Luftraum') && !(b.status || '').startsWith('Im Luftraum')) return -1;
+      if (!(a.status || '').startsWith('Im Luftraum') && (b.status || '').startsWith('Im Luftraum')) return 1;
       return timeToMinutes(b.time) - timeToMinutes(a.time);
     }).slice(0, appConfig.filtering?.maxDisplayCount || 7);
     return list;
@@ -883,6 +895,11 @@ app.get('/api/poll', async (req, res) => {
 
 // Debug endpoint for Render troubleshooting
 app.get('/api/debug', (req, res) => {
+  const snapshotInfo = { available: false };
+  try {
+    snapshotInfo.available = true;
+    snapshotInfo.maxRecentPast = appConfig.data?.maxRecentPast || 7;
+  } catch {}
   const debugInfo = {
     timestamp: new Date().toISOString(),
     config: appConfig,
@@ -894,8 +911,9 @@ app.get('/api/debug', (req, res) => {
       tokenCache: tokenCache.getStats()
     },
     firstContactsCount: Object.keys(firstContactData).length,
-    pastCount: Object.values(firstContactData).filter(m => m && m.status === 'Vergangen').length,
+    pastCount: Object.values(firstContactData).filter(m => m && (m.status || '').startsWith('Vergangen')).length,
     lastCronPoll,
+    snapshotInfo,
     timeDebug: {
       currentTime: new Date().toLocaleTimeString('de-DE'),
       currentTimeISO: new Date().toISOString(),
