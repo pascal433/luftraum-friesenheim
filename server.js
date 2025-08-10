@@ -781,6 +781,10 @@ async function getAircraftInAirspace() {
 // API Endpoints
 app.get('/api/aircraft', async (req, res) => {
   try {
+    if (req.query && req.query.nocache === '1') {
+      cache.del('aircraft');
+      cache.del('lastRequestTime');
+    }
     let aircraft = cache.get('aircraft');
     
     if (!aircraft) {
