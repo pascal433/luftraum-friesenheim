@@ -85,10 +85,9 @@ async function loadFirstContactsFromDB() {
     data.forEach(row => {
       dbData[row.callsign] = {
         firstTime: row.first_time,
-        lastSeenIso: row.last_seen_iso,
-        lastActiveIso: row.last_active_iso,
         status: row.status,
-        direction: row.direction || '-'
+        direction: row.direction || '-',
+        displayName: row.display_name || null
       };
     });
     
@@ -110,8 +109,6 @@ async function saveFirstContactToDB(callsign, contactData) {
       .upsert({
         callsign: callsign,
         first_time: contactData.firstTime,
-        last_seen_iso: contactData.lastSeenIso,
-        last_active_iso: contactData.lastActiveIso,
         status: contactData.status,
         direction: contactData.direction || '-',
         display_name: displayNameForCallsign(callsign)
@@ -208,46 +205,32 @@ async function upsertRecentPastRowToDB(entry) {
 }
 
 function pruneFirstContactsMemory() {
-  const now = Date.now();
-  for (const [cs, meta] of Object.entries(firstContactData)) {
-    if (typeof meta !== 'object') {
-      delete firstContactData[cs];
-      continue;
-    }
-    const isActive = meta.status === 'Im Luftraum';
-    const lastSeen = meta.lastSeenIso ? new Date(meta.lastSeenIso).getTime() : 0;
-    const tooOld = lastSeen > 0 ? ((now - lastSeen) / 60000) > PAST_RETENTION_MINUTES : false;
-    if (!isActive || tooOld) {
-      delete firstContactData[cs];
-    }
+  const maxN = appConfig.data?.maxRecentPast || 7;
+  const active = Object.entries(firstContactData).filter(([, m]) => m && m.status === 'Im Luftraum');
+  const past = Object.entries(firstContactData)
+    .filter(([, m]) => m && m.status === 'Vergangen')
+    .sort((a, b) => new Date(b[1].firstTime || 0) - new Date(a[1].firstTime || 0))
+    .slice(0, maxN);
+  const keepSet = new Set([...active.map(([cs]) => cs), ...past.map(([cs]) => cs)]);
+  for (const cs of Object.keys(firstContactData)) {
+    if (!keepSet.has(cs)) delete firstContactData[cs];
   }
 }
 
 // Alte First Contacts aus Supabase löschen oder migrieren
 async function cleanFirstContactsDB() {
   if (!supabase || !WRITE_ENABLED) {
-    // Speicher bereinigen: behalte alle aktiven + letzte N vergangenen
-    const maxN = appConfig.data?.maxRecentPast || 7;
-    const active = Object.entries(firstContactData).filter(([, m]) => m && m.status === 'Im Luftraum');
-    const past = Object.entries(firstContactData)
-      .filter(([, m]) => m && m.status === 'Vergangen')
-      .sort((a, b) => new Date(b[1].lastActiveIso || 0) - new Date(a[1].lastActiveIso || 0))
-      .slice(0, maxN);
-    const keepSet = new Set([...active.map(([cs]) => cs), ...past.map(([cs]) => cs)]);
-    for (const cs of Object.keys(firstContactData)) {
-      if (!keepSet.has(cs)) delete firstContactData[cs];
-    }
+    pruneFirstContactsMemory();
     return true;
   }
   
   try {
     const maxN = appConfig.data?.maxRecentPast || 7;
-    // Lösche alle 'Vergangen' außer den letzten N (nach last_active_iso)
     const { data: pastRows, error: selErr } = await supabase
       .from('first_contacts')
-      .select('callsign, last_active_iso')
+      .select('callsign, first_time')
       .eq('status', 'Vergangen')
-      .order('last_active_iso', { ascending: false });
+      .order('first_time', { ascending: false });
     if (!selErr && pastRows) {
       const toDelete = pastRows.slice(maxN).map(r => r.callsign);
       if (toDelete.length > 0) {
@@ -306,8 +289,6 @@ for (const key of Object.keys(firstContactData)) {
     const legacyStatus = firstContactData[key + '_status'] || 'Im Luftraum';
     firstContactData[key] = {
       firstTime: value,
-      lastSeenIso: null,
-      lastActiveIso: null,
       status: legacyStatus,
     };
     delete firstContactData[key + '_status'];
@@ -465,7 +446,7 @@ function buildFallbackAircraft() {
   if (cached && cached.length) return cached;
   const pastEntries = Object.entries(firstContactData)
     .filter(([cs, meta]) => typeof meta === 'object' && meta.status === 'Vergangen')
-    .sort((a, b) => new Date(b[1].lastActiveIso || 0) - new Date(a[1].lastActiveIso || 0))
+    .sort((a, b) => new Date(b[1].firstTime || 0) - new Date(a[1].firstTime || 0))
     .slice(0, appConfig.filtering?.maxDisplayCount || 7)
     .map(([cs, meta]) => ({
       time: formatTimeForDisplay(meta.firstTime),
@@ -489,10 +470,7 @@ function cleanFirstContacts() {
       continue;
     }
     const isActive = meta.status === 'Im Luftraum';
-    const freshPast = meta.lastActiveIso
-      ? (now - new Date(meta.lastActiveIso).getTime()) / 60000 <= PAST_RETENTION_MINUTES
-      : false;
-    const keep = isActive || freshPast;
+    const keep = isActive;
     if (!keep) delete firstContactData[cs];
   }
   
@@ -680,14 +658,14 @@ async function getAircraftInAirspace() {
         // Erstkontakt / Status-Timeline verwalten (persistiert)
         let meta = firstContactData[callsignRaw];
         if (!meta) {
-          meta = { firstTime: currentTime, lastSeenIso: null, lastActiveIso: null, status, direction };
+          meta = { firstTime: currentTime, status, direction };
           firstContactData[callsignRaw] = meta;
         }
         // Sichtung in diesem Poll
-        meta.lastSeenIso = new Date().toISOString();
+        // meta.lastSeenIso = new Date().toISOString(); // Entfernt
         // Wenn aktiv, letzte Aktivzeit aktualisieren
         if (status === 'Im Luftraum') {
-          meta.lastActiveIso = meta.lastSeenIso;
+          // meta.lastActiveIso = meta.lastSeenIso; // Entfernt
           if (!meta.direction || meta.direction === '-') {
             meta.direction = direction; // Richtung nur beim ersten Mal setzen
           }
@@ -751,7 +729,7 @@ async function getAircraftInAirspace() {
           .filter(([cs, meta]) => {
             // nicht doppelt, wenn schon in aktueller Liste
             const exists = aircraft.some(a => a.callsign === cs);
-            return meta.lastActiveIso && meta.status === 'Vergangen' && !exists;
+            return meta.status === 'Vergangen' && !exists;
           })
           .map(([cs, meta]) => ({
             time: formatTimeForDisplay(meta.firstTime),
@@ -816,12 +794,12 @@ async function fetchAircraftSnapshotFromDB() {
   try {
     const [{ data: active, error: errA }, { data: past, error: errP }] = await Promise.all([
       supabase.from('first_contacts')
-        .select('callsign, first_time, last_active_iso, status, direction, display_name')
+        .select('callsign, first_time, status, direction, display_name')
         .eq('status', 'Im Luftraum'),
       supabase.from('first_contacts')
-        .select('callsign, first_time, last_active_iso, status, direction, display_name')
+        .select('callsign, first_time, status, direction, display_name')
         .eq('status', 'Vergangen')
-        .order('last_active_iso', { ascending: false })
+        .order('first_time', { ascending: false })
         .limit(maxPast)
     ]);
     if (errA) throw errA;
