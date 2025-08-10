@@ -369,9 +369,13 @@ async function getOpenSkyToken(forceRefresh = false) {
     const clientSecret = process.env.OPENSKY_PASSWORD;
     
     if (!clientId || !clientSecret) {
-      throw new Error('OpenSky API Credentials fehlen. Bitte OPENSKY_USERNAME und OPENSKY_PASSWORD in .env setzen.');
+      const error = 'OpenSky API Credentials fehlen. Bitte OPENSKY_USERNAME und OPENSKY_PASSWORD in .env setzen.';
+      console.error('OAuth Error:', error);
+      if (lastCronPoll) lastCronPoll.error = error;
+      throw new Error(error);
     }
 
+    console.log('🔑 Requesting OAuth token from OpenSky...');
     const response = await axios.post(OPENSKY_AUTH_URL, 
       `grant_type=client_credentials&client_id=${clientId}&client_secret=${clientSecret}`,
       {
@@ -388,13 +392,18 @@ async function getOpenSkyToken(forceRefresh = false) {
       // Lege TTL knapp unter Expires fest, min. 5 Minuten
       const ttl = Math.max(300, expiresIn - 60);
       tokenCache.set('access_token', token, ttl);
-      console.log('OAuth Token erfolgreich abgerufen');
+      console.log('✅ OAuth Token erfolgreich abgerufen, TTL:', ttl + 's');
       return token;
     } else {
-      throw new Error('Kein Access Token in der Antwort');
+      const error = 'Kein Access Token in der Antwort';
+      console.error('OAuth Error:', error, response.data);
+      if (lastCronPoll) lastCronPoll.error = error;
+      throw new Error(error);
     }
   } catch (error) {
-    console.error('Fehler beim Abrufen des OAuth Tokens:', error.message);
+    const errorMsg = `OAuth Token Fehler: ${error.message} (${error.code || 'unknown'})`;
+    console.error(errorMsg);
+    if (lastCronPoll) lastCronPoll.error = errorMsg;
     return null;
   }
 }
@@ -565,6 +574,7 @@ async function getAircraftInAirspace(metrics) {
     
     let response;
     try {
+      console.log('🛰️ Calling OpenSky API...');
       response = await axios.get(`${OPENSKY_BASE_URL}/states/all`, {
         timeout: 60000, // 60 Sekunden für API Calls (OpenSky ist langsam)
         headers: {
@@ -572,7 +582,12 @@ async function getAircraftInAirspace(metrics) {
           'User-Agent': 'AirspaceMonitor/1.0 (https://github.com/your-repo)'
         }
       });
+      console.log('✅ OpenSky API response received, states:', response.data?.states?.length || 0);
     } catch (err) {
+      const errorMsg = `OpenSky API Fehler: ${err.message} (${err.code || 'unknown'})`;
+      console.error(errorMsg);
+      if (lastCronPoll) lastCronPoll.error = errorMsg;
+      
       // Bei 401: Token erneuern und einmalig retry
       if (err.response && err.response.status === 401) {
         console.warn('401 von OpenSky – Token wird erneuert und Request wiederholt...');
@@ -585,6 +600,7 @@ async function getAircraftInAirspace(metrics) {
               'User-Agent': 'AirspaceMonitor/1.0 (https://github.com/your-repo)'
             }
           });
+          console.log('✅ OpenSky API retry successful, states:', response.data?.states?.length || 0);
         } else {
           return buildFallbackAircraft();
         }
