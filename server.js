@@ -360,55 +360,119 @@ function displayNameForCallsign(raw) {
 
 
 
-// OAuth Token abrufen
-async function getOpenSkyToken(forceRefresh = false) {
+// OAuth Token aus Supabase laden
+async function getTokenFromDB() {
+  if (!supabase) return null;
   try {
-    // Prüfe Cache
-    if (forceRefresh) {
-      tokenCache.del('access_token');
-    }
-    let token = tokenCache.get('access_token');
-    if (token) {
-      return token;
-    }
-
-    const clientId = process.env.OPENSKY_USERNAME;
-    const clientSecret = process.env.OPENSKY_PASSWORD;
+    const { data, error } = await supabase
+      .from('oauth_tokens')
+      .select('access_token, expires_at')
+      .eq('service', 'opensky')
+      .single();
     
-    if (!clientId || !clientSecret) {
-      const error = 'OpenSky API Credentials fehlen. Bitte OPENSKY_USERNAME und OPENSKY_PASSWORD in .env setzen.';
-      console.error('OAuth Error:', error);
-      if (lastCronPoll) lastCronPoll.error = error;
-      throw new Error(error);
+    if (error || !data) return null;
+    
+    const expiresAt = new Date(data.expires_at);
+    const now = new Date();
+    
+    // Token noch 2 Minuten gültig?
+    if (expiresAt.getTime() - now.getTime() > 120000) {
+      console.log('✅ Gültiger Token aus DB geladen, expires:', expiresAt.toISOString());
+      return data.access_token;
+    }
+    
+    console.log('⏰ Token aus DB abgelaufen, expires:', expiresAt.toISOString());
+    return null;
+  } catch (error) {
+    console.warn('⚠️ Token DB read error:', error.message);
+    return null;
+  }
+}
+
+// OAuth Token in Supabase speichern
+async function saveTokenToDB(token, expiresIn) {
+  if (!supabase) return false;
+  try {
+    const expiresAt = new Date(Date.now() + (expiresIn * 1000));
+    const { error } = await supabase
+      .from('oauth_tokens')
+      .upsert({
+        service: 'opensky',
+        access_token: token,
+        expires_at: expiresAt.toISOString()
+      });
+    
+    if (error) {
+      console.warn('⚠️ Token DB save error:', error.message);
+      return false;
+    }
+    
+    console.log('✅ Token in DB gespeichert, expires:', expiresAt.toISOString());
+    return true;
+  } catch (error) {
+    console.warn('⚠️ Token DB save error:', error.message);
+    return false;
+  }
+}
+
+// OAuth Token abrufen (mit persistentem Caching)
+async function getOpenSkyToken(forceRefresh = false) {
+  const clientId = process.env.OPENSKY_USERNAME;
+  const clientSecret = process.env.OPENSKY_PASSWORD;
+  
+  if (!clientId || !clientSecret) {
+    const error = 'OpenSky API Credentials fehlen. Bitte OPENSKY_USERNAME und OPENSKY_PASSWORD in .env setzen.';
+    console.error('OAuth Error:', error);
+    if (lastCronPoll) lastCronPoll.error = error;
+    return null;
+  }
+
+  try {
+    // 1. Prüfe Memory Cache
+    if (!forceRefresh) {
+      let token = tokenCache.get('access_token');
+      if (token) {
+        console.log('✅ Token aus Memory Cache verwendet');
+        return token;
+      }
+      
+      // 2. Prüfe Supabase Cache
+      token = await getTokenFromDB();
+      if (token) {
+        // In Memory Cache für diese Function-Instanz speichern
+        tokenCache.set('access_token', token, 1800); // 30 min
+        return token;
+      }
     }
 
-    console.log('🔑 Requesting OAuth token from OpenSky...');
+    // 3. Neuen Token anfordern
+    console.log('🔑 Requesting new OAuth token from OpenSky...');
     const response = await axios.post(OPENSKY_AUTH_URL, 
       `grant_type=client_credentials&client_id=${clientId}&client_secret=${clientSecret}`,
       {
         headers: {
           'Content-Type': 'application/x-www-form-urlencoded'
         },
-        timeout: 60000, // 60 Sekunden für OAuth (OpenSky ist langsam)
-        // Retry bei Netzwerk-Timeouts
-        validateStatus: (status) => status < 500,
-        maxRedirects: 3
+        timeout: 60000 // 60 Sekunden für OAuth (OpenSky ist langsam)
       }
     );
 
     if (response.data && response.data.access_token) {
-      token = response.data.access_token;
-      const expiresIn = parseInt(response.data.expires_in || '3600', 10);
-      // Lege TTL knapp unter Expires fest, min. 5 Minuten
+      const token = response.data.access_token;
+      const expiresIn = parseInt(response.data.expires_in || '1800', 10); // Default 30 min
+      
+      // In Memory und DB speichern
       const ttl = Math.max(300, expiresIn - 60);
       tokenCache.set('access_token', token, ttl);
-      console.log('✅ OAuth Token erfolgreich abgerufen, TTL:', ttl + 's');
+      await saveTokenToDB(token, expiresIn);
+      
+      console.log('✅ Neuer OAuth Token erfolgreich abgerufen, TTL:', ttl + 's');
       return token;
     } else {
       const error = 'Kein Access Token in der Antwort';
       console.error('OAuth Error:', error, response.data);
       if (lastCronPoll) lastCronPoll.error = error;
-      throw new Error(error);
+      return null;
     }
   } catch (error) {
     // Bei Timeout-Fehlern: einmalig retry nach kurzer Pause
@@ -425,9 +489,10 @@ async function getOpenSkyToken(forceRefresh = false) {
         );
         if (retryResponse.data && retryResponse.data.access_token) {
           const token = retryResponse.data.access_token;
-          const expiresIn = parseInt(retryResponse.data.expires_in || '3600', 10);
+          const expiresIn = parseInt(retryResponse.data.expires_in || '1800', 10);
           const ttl = Math.max(300, expiresIn - 60);
           tokenCache.set('access_token', token, ttl);
+          await saveTokenToDB(token, expiresIn);
           console.log('✅ OAuth Token retry erfolgreich');
           return token;
         }
@@ -944,6 +1009,7 @@ app.get('/api/poll', async (req, res) => {
     res.status(500).json({ ok: false, error: lastCronPoll.error });
   }
 });
+
 
 // Debug endpoint for Render troubleshooting
 app.get('/api/debug', (req, res) => {
