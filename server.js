@@ -106,11 +106,12 @@ async function loadRecentPastFromDB() {
   if (!supabase) return recentPast;
   
   try {
+    const limitN = appConfig.data?.maxRecentPast || 7;
     const { data, error } = await supabase
       .from('recent_past')
       .select('*')
       .order('last_active_iso', { ascending: false })
-      .limit(7);
+      .limit(limitN);
     
     if (error) {
       console.log('⚠️ Supabase recent_past Fehler:', error.message);
@@ -184,6 +185,7 @@ async function saveRecentPastToDB(pastData) {
   if (!supabase || !WRITE_ENABLED) return true;
   
   try {
+    const maxN = appConfig.data?.maxRecentPast || 7;
     for (const item of pastData) {
       await supabase.from('recent_past').delete().eq('callsign', item.callsign);
       const { error } = await supabase
@@ -198,6 +200,16 @@ async function saveRecentPastToDB(pastData) {
         console.log('⚠️ Supabase saveRecentPast (row) Fehler:', error.message);
       }
     }
+    // Prune table to maxN rows (keep newest by last_active_iso)
+    const { data: idsToDelete, error: selErr } = await supabase
+      .from('recent_past')
+      .select('id')
+      .order('last_active_iso', { ascending: false })
+      .range(maxN, 10000);
+    if (!selErr && idsToDelete && idsToDelete.length > 0) {
+      const delIds = idsToDelete.map(r => r.id);
+      await supabase.from('recent_past').delete().in('id', delIds);
+    }
     return true;
   } catch (error) {
     console.log('⚠️ Supabase saveRecentPast Fehler:', error.message);
@@ -205,22 +217,92 @@ async function saveRecentPastToDB(pastData) {
   }
 }
 
-// Alte First Contacts aus Supabase löschen
-async function cleanFirstContactsDB() {
+// Recent Past: einzelne Zeile idempotent in DB upserten
+async function upsertRecentPastRowToDB(entry) {
   if (!supabase || !WRITE_ENABLED) return true;
-  
   try {
-    // Entferne alle bereits als 'Vergangen' markierten Einträge direkt
-    const { error } = await supabase
-      .from('first_contacts')
-      .delete()
-      .eq('status', 'Vergangen');
-    
+    await supabase.from('recent_past').delete().eq('callsign', entry.callsign);
+    const { error } = await supabase.from('recent_past').insert({
+      callsign: entry.callsign,
+      first_time: entry.firstTime,
+      last_active_iso: entry.lastActiveIso,
+      direction: entry.direction || null
+    });
     if (error) {
-      console.log('⚠️ Supabase cleanFirstContacts Fehler:', error.message);
+      console.log('⚠️ Supabase upsertRecentPastRow Fehler:', error.message);
       return false;
     }
-    
+    return true;
+  } catch (error) {
+    console.log('⚠️ Supabase upsertRecentPastRow Fehler:', error.message);
+    return false;
+  }
+}
+
+function pruneFirstContactsMemory() {
+  const now = Date.now();
+  for (const [cs, meta] of Object.entries(firstContactData)) {
+    if (typeof meta !== 'object') {
+      delete firstContactData[cs];
+      continue;
+    }
+    const isActive = meta.status === 'Im Luftraum';
+    const lastSeen = meta.lastSeenIso ? new Date(meta.lastSeenIso).getTime() : 0;
+    const tooOld = lastSeen > 0 ? ((now - lastSeen) / 60000) > PAST_RETENTION_MINUTES : false;
+    if (!isActive || tooOld) {
+      delete firstContactData[cs];
+    }
+  }
+}
+
+// Alte First Contacts aus Supabase löschen oder migrieren
+async function cleanFirstContactsDB() {
+  if (!supabase || !WRITE_ENABLED) {
+    // Zusätzlich Speicher bereinigen
+    pruneFirstContactsMemory();
+    return true;
+  }
+  
+  try {
+    const cutoffTime = new Date();
+    cutoffTime.setMinutes(cutoffTime.getMinutes() - PAST_RETENTION_MINUTES);
+
+    // Hole veraltete oder bereits als 'Vergangen' markierte Einträge
+    const { data: staleRows, error: selectError } = await supabase
+      .from('first_contacts')
+      .select('callsign, first_time, last_active_iso, last_seen_iso, status, direction')
+      .or(`status.eq.Vergangen,last_seen_iso.lt.${cutoffTime.toISOString()}`);
+
+    if (selectError) {
+      console.log('⚠️ Supabase cleanFirstContacts (select) Fehler:', selectError.message);
+    } else if (staleRows && staleRows.length > 0) {
+      // Migriere jeden Eintrag nach recent_past (falls last_active_iso vorhanden)
+      for (const row of staleRows) {
+        if (row.last_active_iso) {
+          await upsertRecentPastRowToDB({
+            callsign: row.callsign,
+            firstTime: row.first_time,
+            lastActiveIso: row.last_active_iso,
+            direction: row.direction || null
+          });
+        }
+      }
+      // Lösche alle betroffenen Einträge aus first_contacts
+      const callsigns = staleRows.map(r => r.callsign);
+      if (callsigns.length > 0) {
+        const { error: delError } = await supabase
+          .from('first_contacts')
+          .delete()
+          .in('callsign', callsigns);
+        if (delError) {
+          console.log('⚠️ Supabase cleanFirstContacts (delete) Fehler:', delError.message);
+        }
+      }
+    }
+
+    // Speicher bereinigen
+    pruneFirstContactsMemory();
+
     return true;
   } catch (error) {
     console.log('⚠️ Supabase cleanFirstContacts Fehler:', error.message);
@@ -481,6 +563,7 @@ function cleanFirstContacts() {
 
 function upsertRecentPast(entry) {
   // entry: { callsign, firstTime, lastActiveIso, direction? }
+  const maxN = appConfig.data?.maxRecentPast || 7;
   // Entferne gleiche Callsign-Einträge
   recentPast = recentPast.filter(e => e.callsign !== entry.callsign);
   recentPast.push({
@@ -489,9 +572,9 @@ function upsertRecentPast(entry) {
     lastActiveIso: entry.lastActiveIso,
     direction: entry.direction || '-'
   });
-  // Sortiere nach lastActiveIso absteigend und halte max 7
+  // Sortiere nach lastActiveIso absteigend und halte max N
   recentPast.sort((a, b) => new Date(b.lastActiveIso) - new Date(a.lastActiveIso));
-  recentPast = recentPast.slice(0, appConfig.filtering?.maxDisplayCount || 7);
+  recentPast = recentPast.slice(0, maxN);
   
   if (supabase) {
     saveRecentPastToDB(recentPast);
