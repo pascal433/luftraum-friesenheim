@@ -108,6 +108,15 @@ class AirspaceMonitor {
         // Zeige letztes Update in der Konsole und optional im DOM
         if (this.lastUpdate) {
             document.title = `Luftraum (${this.lastUpdate})`;
+            const statusEl = document.getElementById('update-status');
+            if (statusEl) {
+                statusEl.textContent = this.lastUpdate;
+                statusEl.style.color = '#ffcc00'; // Gelb für frisches Update
+                // Nach 10 Sekunden zu grau wechseln
+                setTimeout(() => {
+                    if (statusEl) statusEl.style.color = '#666';
+                }, 10000);
+            }
         }
     }
 
