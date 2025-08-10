@@ -74,8 +74,7 @@ async function loadFirstContactsFromDB() {
   try {
     const { data, error } = await supabase
       .from('first_contacts')
-      .select('*')
-      .neq('status', 'Vergangen');
+      .select('*');
     
     if (error) {
       console.log('⚠️ Supabase first_contacts Fehler:', error.message);
