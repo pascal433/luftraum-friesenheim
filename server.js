@@ -487,7 +487,8 @@ function formatTimeForDisplay(value) {
     }
     const base = new Date(value);
     if (isNaN(base.getTime())) return '-';
-    const d = new Date(base.getTime() + OFFSET_MS);
+    const offsetMs = (parseInt(process.env.TIME_OFFSET_HOURS || '0', 10)) * 3600000;
+    const d = new Date(base.getTime() + offsetMs);
     const h = String(d.getUTCHours()).padStart(2, '0');
     const m = String(d.getUTCMinutes()).padStart(2, '0');
     return `${h}:${m}`;
@@ -498,7 +499,8 @@ function formatTimeForDisplay(value) {
 }
 
 function nowHHMM() {
-  const d = new Date(Date.now() + OFFSET_MS);
+  const offsetMs = (parseInt(process.env.TIME_OFFSET_HOURS || '0', 10)) * 3600000;
+  const d = new Date(Date.now() + offsetMs);
   const h = String(d.getUTCHours()).padStart(2, '0');
   const m = String(d.getUTCMinutes()).padStart(2, '0');
   return `${h}:${m}`;
