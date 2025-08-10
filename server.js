@@ -803,6 +803,52 @@ async function getAircraftInAirspace() {
   }
 }
 
+async function fetchAircraftSnapshotFromDB() {
+  if (!supabase) return null;
+  const maxPast = appConfig.data?.maxRecentPast || 7;
+  try {
+    const [{ data: active, error: errA }, { data: past, error: errP }] = await Promise.all([
+      supabase.from('first_contacts')
+        .select('callsign, first_time, last_active_iso, status, direction')
+        .eq('status', 'Im Luftraum'),
+      supabase.from('first_contacts')
+        .select('callsign, first_time, last_active_iso, status, direction')
+        .eq('status', 'Vergangen')
+        .order('last_active_iso', { ascending: false })
+        .limit(maxPast)
+    ]);
+    if (errA) throw errA;
+    if (errP) throw errP;
+    let rows = [...(active || []), ...(past || [])];
+    // Map to API format
+    let list = rows.map(r => ({
+      time: formatTimeForDisplay(r.first_time),
+      callsign: displayNameForCallsign(r.callsign),
+      code: r.callsign,
+      direction: r.direction || '-',
+      status: r.status,
+      altitude: 0,
+      speed: 0,
+      distance: 0
+    }));
+    // Sort and cap
+    const timeToMinutes = (timeStr) => {
+      if (!timeStr || typeof timeStr !== 'string') return 0;
+      const [hours, minutes] = timeStr.split(':').map(Number);
+      return (hours || 0) * 60 + (minutes || 0);
+    };
+    list = list.sort((a, b) => {
+      if (a.status === 'Im Luftraum' && b.status !== 'Im Luftraum') return -1;
+      if (a.status !== 'Im Luftraum' && b.status === 'Im Luftraum') return 1;
+      return timeToMinutes(b.time) - timeToMinutes(a.time);
+    }).slice(0, appConfig.filtering?.maxDisplayCount || 7);
+    return list;
+  } catch (e) {
+    console.warn('fetchAircraftSnapshotFromDB Fehler:', e.message || e);
+    return null;
+  }
+}
+
 // API Endpoints
 app.get('/api/aircraft', async (req, res) => {
   try {
@@ -813,11 +859,15 @@ app.get('/api/aircraft', async (req, res) => {
       cache.del('aircraft');
       cache.del('lastRequestTime');
     }
-    let aircraft = cache.get('aircraft');
-    
-    if (!aircraft) {
+
+    let aircraft;
+    if (supabase) {
+      // Always read current snapshot from DB to keep local and prod consistent
+      aircraft = await fetchAircraftSnapshotFromDB();
+      if (!aircraft) aircraft = [];
+    } else {
+      // Fallback without Supabase
       aircraft = await getAircraftInAirspace();
-      cache.set('aircraft', aircraft);
     }
     
     res.json({
@@ -844,6 +894,7 @@ app.get('/api/debug', (req, res) => {
     config: appConfig,
     hasSupabaseCredentials: !!(process.env.SUPABASE_URL && process.env.SUPABASE_ANON_KEY),
     usingSupabase: !!supabase,
+    writeEnabled: WRITE_ENABLED,
     cacheStats: {
       apiCache: cache.getStats(),
       tokenCache: tokenCache.getStats()
