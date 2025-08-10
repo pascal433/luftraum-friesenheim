@@ -150,7 +150,7 @@ async function getOpenSkyToken(forceRefresh = false) {
         headers: {
           'Content-Type': 'application/x-www-form-urlencoded'
         },
-        timeout: 30000 // 30 Sekunden für OAuth
+        timeout: 60000 // 60 Sekunden für OAuth (OpenSky ist langsam)
       }
     );
 
@@ -286,7 +286,7 @@ async function getAircraftInAirspace() {
     let response;
     try {
       response = await axios.get(`${OPENSKY_BASE_URL}/states/all`, {
-        timeout: 30000, // 30 Sekunden für API Calls
+        timeout: 60000, // 60 Sekunden für API Calls (OpenSky ist langsam)
         headers: {
           'Authorization': `Bearer ${token}`,
           'User-Agent': 'AirspaceMonitor/1.0 (https://github.com/your-repo)'
@@ -299,7 +299,7 @@ async function getAircraftInAirspace() {
         const refreshed = await getOpenSkyToken(true);
         if (refreshed) {
           response = await axios.get(`${OPENSKY_BASE_URL}/states/all`, {
-            timeout: 30000, // 30 Sekunden für API Calls
+            timeout: 60000, // 60 Sekunden für API Calls (OpenSky ist langsam)
             headers: {
               'Authorization': `Bearer ${refreshed}`,
               'User-Agent': 'AirspaceMonitor/1.0 (https://github.com/your-repo)'
@@ -506,6 +506,35 @@ app.get('/api/aircraft', async (req, res) => {
 
 app.get('/api/config', (req, res) => {
   res.json(config);
+});
+
+// Debug endpoint for Render troubleshooting
+app.get('/api/debug', async (req, res) => {
+  try {
+    const debugInfo = {
+      timestamp: new Date().toISOString(),
+      environment: process.env.NODE_ENV || 'development',
+      hasOpenSkyCredentials: !!(process.env.OPENSKY_USERNAME && process.env.OPENSKY_PASSWORD),
+      cacheStatus: {
+        aircraftCached: !!cache.get('aircraft'),
+        tokenCached: !!tokenCache.get('access_token')
+      },
+      lastRequestTime: cache.get('lastRequestTime') || 'never'
+    };
+    
+    // Test OpenSky connectivity (ohne echte API calls)
+    const testUrl = 'https://opensky-network.org';
+    try {
+      const testResponse = await axios.get(testUrl, { timeout: 5000 });
+      debugInfo.openskyConnectivity = 'OK';
+    } catch (error) {
+      debugInfo.openskyConnectivity = `Error: ${error.message}`;
+    }
+    
+    res.json(debugInfo);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
 });
 
 // Hauptseite
