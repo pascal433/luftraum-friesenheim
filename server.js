@@ -18,7 +18,7 @@ try {
 }
 
 const app = express();
-const PORT = appConfig.display?.port || process.env.PORT || 3000;
+const PORT = process.env.PORT || appConfig.display?.port || 3000;
 
 // Cache für konfigurierbare Zeit (Rate Limit Compliance)
 const cache = new NodeCache({ stdTTL: appConfig.data?.cacheTimeoutSeconds || 60 });
@@ -542,9 +542,14 @@ app.get('/', (req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'index.html'));
 });
 
-// Server starten
-app.listen(PORT, () => {
-  console.log(`🚁 Luftraumüberwachung läuft auf Port ${PORT}`);
-  console.log(`📍 Überwachungsgebiet: ${config.coordinates.lat}, ${config.coordinates.lon} (${config.radius}km Radius)`);
-  console.log(`📺 E-Ink Display optimiert für 800x480px`);
-});
+// Server starten (nur wenn nicht in Vercel Serverless Umgebung)
+if (!process.env.VERCEL) {
+  app.listen(PORT, () => {
+    console.log(`🚁 Luftraumüberwachung läuft auf Port ${PORT}`);
+    console.log(`📍 Überwachungsgebiet: ${config.coordinates.lat}, ${config.coordinates.lon} (${config.radius}km Radius)`);
+    console.log(`📺 E-Ink Display optimiert für 800x480px`);
+  });
+}
+
+// Export für Vercel
+module.exports = app;

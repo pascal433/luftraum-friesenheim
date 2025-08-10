@@ -1,44 +1,44 @@
 {
-  "DLH61H": {
-    "firstTime": "09:34",
-    "lastSeenIso": "2025-08-10T07:35:43.487Z",
-    "lastActiveIso": "2025-08-10T07:35:43.487Z",
+  "DERWA": {
+    "firstTime": "10:25",
+    "lastSeenIso": "2025-08-10T08:31:58.253Z",
+    "lastActiveIso": "2025-08-10T08:31:58.253Z",
     "status": "Vergangen"
   },
-  "DEVTP": {
-    "firstTime": "09:35",
-    "lastSeenIso": "2025-08-10T07:37:13.536Z",
-    "lastActiveIso": "2025-08-10T07:37:13.536Z",
+  "ENT93JZ": {
+    "firstTime": "10:27",
+    "lastSeenIso": "2025-08-10T08:31:58.256Z",
+    "lastActiveIso": "2025-08-10T08:31:58.256Z",
     "status": "Vergangen"
   },
-  "CMA626": {
-    "firstTime": "09:37",
-    "lastSeenIso": "2025-08-10T07:37:13.539Z",
-    "lastActiveIso": "2025-08-10T07:37:13.539Z",
+  "DLH83H": {
+    "firstTime": "10:30",
+    "lastSeenIso": "2025-08-10T08:31:58.256Z",
+    "lastActiveIso": "2025-08-10T08:31:58.256Z",
     "status": "Vergangen"
   },
-  "DLH44T": {
-    "firstTime": "10:05",
-    "lastSeenIso": "2025-08-10T08:05:05.262Z",
-    "lastActiveIso": "2025-08-10T08:05:05.262Z",
+  "DMZSL": {
+    "firstTime": "10:36",
+    "lastSeenIso": "2025-08-10T08:44:43.051Z",
+    "lastActiveIso": "2025-08-10T08:44:43.051Z",
     "status": "Vergangen"
   },
-  "SWR911F": {
-    "firstTime": "10:05",
-    "lastSeenIso": "2025-08-10T08:06:35.095Z",
-    "lastActiveIso": "2025-08-10T08:06:35.095Z",
+  "DLH7JV": {
+    "firstTime": "10:44",
+    "lastSeenIso": "2025-08-10T08:46:13.036Z",
+    "lastActiveIso": "2025-08-10T08:46:13.036Z",
     "status": "Vergangen"
   },
-  "DLH66K": {
-    "firstTime": "10:07",
-    "lastSeenIso": "2025-08-10T08:08:35.127Z",
-    "lastActiveIso": "2025-08-10T08:08:35.127Z",
+  "AFR51MK": {
+    "firstTime": "10:44",
+    "lastSeenIso": "2025-08-10T08:44:43.051Z",
+    "lastActiveIso": "2025-08-10T08:44:43.051Z",
     "status": "Vergangen"
   },
-  "DLH76M": {
-    "firstTime": "10:09",
-    "lastSeenIso": "2025-08-10T08:11:05.185Z",
-    "lastActiveIso": "2025-08-10T08:11:05.185Z",
+  "DLH436": {
+    "firstTime": "10:46",
+    "lastSeenIso": "2025-08-10T08:46:13.038Z",
+    "lastActiveIso": "2025-08-10T08:46:13.038Z",
     "status": "Vergangen"
   }
 }
