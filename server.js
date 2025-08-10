@@ -496,6 +496,9 @@ function formatTimeForDisplay(value) {
   }
 }
 
+// Tracking für letzten Cron-Poll
+let lastCronPoll = { timestamp: null, found: 0, error: null };
+
 let initialDataLoaded = false;
 let initialLoadPromise = null;
 async function ensureInitialLoad() {
