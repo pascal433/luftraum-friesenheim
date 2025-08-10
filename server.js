@@ -113,7 +113,8 @@ async function saveFirstContactToDB(callsign, contactData) {
         last_seen_iso: contactData.lastSeenIso,
         last_active_iso: contactData.lastActiveIso,
         status: contactData.status,
-        direction: contactData.direction || '-'
+        direction: contactData.direction || '-',
+        display_name: displayNameForCallsign(callsign)
       });
     
     if (error) {
@@ -558,9 +559,15 @@ async function ensureInitialLoad() {
   if (initialDataLoaded) return;
   if (!initialLoadPromise) {
     initialLoadPromise = (async () => {
-      const fc = await loadFirstContactsFromDB();
+      const [fc, ac] = await Promise.all([
+        loadFirstContactsFromDB(),
+        loadAirlinesFromDB()
+      ]);
       if (fc && typeof fc === 'object') {
         firstContactData = fc;
+      }
+      if (ac && typeof ac === 'object') {
+        airlineCodes = ac;
       }
       initialDataLoaded = true;
     })().catch(err => {
@@ -809,10 +816,10 @@ async function fetchAircraftSnapshotFromDB() {
   try {
     const [{ data: active, error: errA }, { data: past, error: errP }] = await Promise.all([
       supabase.from('first_contacts')
-        .select('callsign, first_time, last_active_iso, status, direction')
+        .select('callsign, first_time, last_active_iso, status, direction, display_name')
         .eq('status', 'Im Luftraum'),
       supabase.from('first_contacts')
-        .select('callsign, first_time, last_active_iso, status, direction')
+        .select('callsign, first_time, last_active_iso, status, direction, display_name')
         .eq('status', 'Vergangen')
         .order('last_active_iso', { ascending: false })
         .limit(maxPast)
@@ -820,18 +827,19 @@ async function fetchAircraftSnapshotFromDB() {
     if (errA) throw errA;
     if (errP) throw errP;
     let rows = [...(active || []), ...(past || [])];
-    // Map to API format
-    let list = rows.map(r => ({
-      time: formatTimeForDisplay(r.first_time),
-      callsign: displayNameForCallsign(r.callsign),
-      code: r.callsign,
-      direction: r.direction || '-',
-      status: r.status,
-      altitude: 0,
-      speed: 0,
-      distance: 0
-    }));
-    // Sort and cap
+    let list = rows.map(r => {
+      const display = r.display_name || displayNameForCallsign(r.callsign);
+      return {
+        time: formatTimeForDisplay(r.first_time),
+        callsign: display,
+        code: r.callsign,
+        direction: r.direction || '-',
+        status: r.status,
+        altitude: 0,
+        speed: 0,
+        distance: 0
+      };
+    });
     const timeToMinutes = (timeStr) => {
       if (!timeStr || typeof timeStr !== 'string') return 0;
       const [hours, minutes] = timeStr.split(':').map(Number);
