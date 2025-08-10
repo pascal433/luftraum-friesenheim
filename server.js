@@ -120,7 +120,8 @@ async function loadRecentPastFromDB() {
     const dbData = data.map(row => ({
       callsign: row.callsign,
       firstTime: row.first_time,
-      lastActiveIso: row.last_active_iso
+      lastActiveIso: row.last_active_iso,
+      direction: row.direction || '-'
     }));
     
     console.log(`✅ ${data.length} Recent Past aus Supabase geladen`);
@@ -183,7 +184,6 @@ async function saveRecentPastToDB(pastData) {
   if (!supabase || !WRITE_ENABLED) return true;
   
   try {
-    // Für jeden Eintrag: vorhandenen mit gleichem Callsign löschen, dann einfügen
     for (const item of pastData) {
       await supabase.from('recent_past').delete().eq('callsign', item.callsign);
       const { error } = await supabase
@@ -191,7 +191,8 @@ async function saveRecentPastToDB(pastData) {
         .insert({
           callsign: item.callsign,
           first_time: item.firstTime,
-          last_active_iso: item.lastActiveIso
+          last_active_iso: item.lastActiveIso,
+          direction: item.direction || null
         });
       if (error) {
         console.log('⚠️ Supabase saveRecentPast (row) Fehler:', error.message);
@@ -479,10 +480,15 @@ function cleanFirstContacts() {
 }
 
 function upsertRecentPast(entry) {
-  // entry: { callsign, firstTime, lastActiveIso }
+  // entry: { callsign, firstTime, lastActiveIso, direction? }
   // Entferne gleiche Callsign-Einträge
   recentPast = recentPast.filter(e => e.callsign !== entry.callsign);
-  recentPast.push(entry);
+  recentPast.push({
+    callsign: entry.callsign,
+    firstTime: entry.firstTime,
+    lastActiveIso: entry.lastActiveIso,
+    direction: entry.direction || '-'
+  });
   // Sortiere nach lastActiveIso absteigend und halte max 7
   recentPast.sort((a, b) => new Date(b.lastActiveIso) - new Date(a.lastActiveIso));
   recentPast = recentPast.slice(0, appConfig.filtering?.maxDisplayCount || 7);
@@ -522,11 +528,14 @@ function degreesToDirection(degrees) {
   return directions[index];
 }
 
-// Hilfsfunktion: ISO-Zeit zu HH:MM Format konvertieren
-function formatTimeForDisplay(isoTime) {
-  if (!isoTime) return '-';
+// Hilfsfunktion: ISO- oder HH:MM-Zeit zu HH:MM Format konvertieren
+function formatTimeForDisplay(value) {
+  if (!value) return '-';
   try {
-    const date = new Date(isoTime);
+    if (typeof value === 'string' && /^\d{1,2}:\d{2}$/.test(value.trim())) {
+      return value.trim();
+    }
+    const date = new Date(value);
     if (isNaN(date.getTime())) return '-';
     return date.toLocaleTimeString('de-DE', { 
       hour: '2-digit', 
