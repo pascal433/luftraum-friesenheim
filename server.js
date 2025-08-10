@@ -748,14 +748,7 @@ async function getAircraftInAirspace() {
         seenCallsigns.add(callsign);
         return true;
       });
-      // Retention: Vergangene Flüge nach Karenzzeit ausblenden
-      aircraft = aircraft.filter(item => {
-        if (item.status === 'Im Luftraum') return true;
-        const meta = firstContactData[item.code || item.callsign];
-        if (!meta || !meta.lastActiveIso) return false;
-        const minutesSinceActive = (Date.now() - new Date(meta.lastActiveIso).getTime()) / 60000;
-        return minutesSinceActive <= PAST_RETENTION_MINUTES;
-      });
+      // Retention: Vergangene Flüge werden nicht zeitbasiert ausgeblendet; Cleaner begrenzt DB auf letzte N
       aircraft = aircraft.sort((a, b) => {
         // Sortierung: Im Luftraum zuerst, dann nach Uhrzeit (neueste zuerst)
         if (a.status === 'Im Luftraum' && b.status !== 'Im Luftraum') return -1;
