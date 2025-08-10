@@ -551,9 +551,34 @@ function formatTimeForDisplay(value) {
   }
 }
 
+let initialDataLoaded = false;
+let initialLoadPromise = null;
+async function ensureInitialLoad() {
+  if (!supabase) return;
+  if (initialDataLoaded) return;
+  if (!initialLoadPromise) {
+    initialLoadPromise = (async () => {
+      const fc = await loadFirstContactsFromDB();
+      if (fc && typeof fc === 'object') {
+        firstContactData = fc;
+      }
+      initialDataLoaded = true;
+    })().catch(err => {
+      console.warn('Initial load failed:', err?.message || err);
+      initialDataLoaded = false;
+      initialLoadPromise = null;
+    });
+  }
+  await initialLoadPromise;
+}
+
 // Flugzeuge im Luftraum abrufen
 async function getAircraftInAirspace() {
   try {
+    // Sicherstellen, dass First Contacts bei Serverless-Kaltstart geladen sind
+    if (supabase) {
+      await ensureInitialLoad();
+    }
     // Rate Limit Compliance: Mindestens 6 Sekunden zwischen Anfragen
     const lastRequest = cache.get('lastRequestTime');
     const now = Date.now();
@@ -781,6 +806,9 @@ async function getAircraftInAirspace() {
 // API Endpoints
 app.get('/api/aircraft', async (req, res) => {
   try {
+    if (supabase) {
+      await ensureInitialLoad();
+    }
     if (req.query && req.query.nocache === '1') {
       cache.del('aircraft');
       cache.del('lastRequestTime');
