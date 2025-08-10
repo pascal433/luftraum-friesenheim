@@ -101,38 +101,6 @@ async function loadFirstContactsFromDB() {
   }
 }
 
-// Recent Past aus Supabase laden
-async function loadRecentPastFromDB() {
-  if (!supabase) return recentPast;
-  
-  try {
-    const limitN = appConfig.data?.maxRecentPast || 7;
-    const { data, error } = await supabase
-      .from('recent_past')
-      .select('*')
-      .order('last_active_iso', { ascending: false })
-      .limit(limitN);
-    
-    if (error) {
-      console.log('⚠️ Supabase recent_past Fehler:', error.message);
-      return recentPast;
-    }
-    
-    const dbData = data.map(row => ({
-      callsign: row.callsign,
-      firstTime: row.first_time,
-      lastActiveIso: row.last_active_iso,
-      direction: row.direction || '-'
-    }));
-    
-    console.log(`✅ ${data.length} Recent Past aus Supabase geladen`);
-    return dbData;
-  } catch (error) {
-    console.log('⚠️ Supabase loadRecentPast Fehler:', error.message);
-    return recentPast;
-  }
-}
-
 // First Contact in Supabase speichern/updaten
 async function saveFirstContactToDB(callsign, contactData) {
   if (!supabase || !WRITE_ENABLED) return true;
@@ -258,51 +226,34 @@ function pruneFirstContactsMemory() {
 // Alte First Contacts aus Supabase löschen oder migrieren
 async function cleanFirstContactsDB() {
   if (!supabase || !WRITE_ENABLED) {
-    // Zusätzlich Speicher bereinigen
-    pruneFirstContactsMemory();
+    // Speicher bereinigen: behalte alle aktiven + letzte N vergangenen
+    const maxN = appConfig.data?.maxRecentPast || 7;
+    const active = Object.entries(firstContactData).filter(([, m]) => m && m.status === 'Im Luftraum');
+    const past = Object.entries(firstContactData)
+      .filter(([, m]) => m && m.status === 'Vergangen')
+      .sort((a, b) => new Date(b[1].lastActiveIso || 0) - new Date(a[1].lastActiveIso || 0))
+      .slice(0, maxN);
+    const keepSet = new Set([...active.map(([cs]) => cs), ...past.map(([cs]) => cs)]);
+    for (const cs of Object.keys(firstContactData)) {
+      if (!keepSet.has(cs)) delete firstContactData[cs];
+    }
     return true;
   }
   
   try {
-    const cutoffTime = new Date();
-    cutoffTime.setMinutes(cutoffTime.getMinutes() - PAST_RETENTION_MINUTES);
-
-    // Hole veraltete oder bereits als 'Vergangen' markierte Einträge
-    const { data: staleRows, error: selectError } = await supabase
+    const maxN = appConfig.data?.maxRecentPast || 7;
+    // Lösche alle 'Vergangen' außer den letzten N (nach last_active_iso)
+    const { data: pastRows, error: selErr } = await supabase
       .from('first_contacts')
-      .select('callsign, first_time, last_active_iso, last_seen_iso, status, direction')
-      .or(`status.eq.Vergangen,last_seen_iso.lt.${cutoffTime.toISOString()}`);
-
-    if (selectError) {
-      console.log('⚠️ Supabase cleanFirstContacts (select) Fehler:', selectError.message);
-    } else if (staleRows && staleRows.length > 0) {
-      // Migriere jeden Eintrag nach recent_past (falls last_active_iso vorhanden)
-      for (const row of staleRows) {
-        if (row.last_active_iso) {
-          await upsertRecentPastRowToDB({
-            callsign: row.callsign,
-            firstTime: row.first_time,
-            lastActiveIso: row.last_active_iso,
-            direction: row.direction || null
-          });
-        }
-      }
-      // Lösche alle betroffenen Einträge aus first_contacts
-      const callsigns = staleRows.map(r => r.callsign);
-      if (callsigns.length > 0) {
-        const { error: delError } = await supabase
-          .from('first_contacts')
-          .delete()
-          .in('callsign', callsigns);
-        if (delError) {
-          console.log('⚠️ Supabase cleanFirstContacts (delete) Fehler:', delError.message);
-        }
+      .select('callsign, last_active_iso')
+      .eq('status', 'Vergangen')
+      .order('last_active_iso', { ascending: false });
+    if (!selErr && pastRows) {
+      const toDelete = pastRows.slice(maxN).map(r => r.callsign);
+      if (toDelete.length > 0) {
+        await supabase.from('first_contacts').delete().in('callsign', toDelete);
       }
     }
-
-    // Speicher bereinigen
-    pruneFirstContactsMemory();
-
     return true;
   } catch (error) {
     console.log('⚠️ Supabase cleanFirstContacts Fehler:', error.message);
@@ -344,9 +295,7 @@ if (!supabase) {
   loadFirstContactsFromDB().then(data => {
     firstContactData = data;
   });
-  loadRecentPastFromDB().then(data => {
-    recentPast = data;
-  });
+  // Recent Past wird nicht mehr separat geladen, sondern als Teil von first_contacts
 }
 
 // Datenmigration: Älteres Format (reiner Zeit-String) -> neues Objektformat
@@ -514,24 +463,21 @@ function saveFirstContactData() {
 function buildFallbackAircraft() {
   const cached = cache.get('aircraft');
   if (cached && cached.length) return cached;
-  return recentPast.slice(0, appConfig.filtering?.maxDisplayCount || 7).map(e => ({
-    time: formatTimeForDisplay(e.firstTime),
-    callsign: displayNameForCallsign(e.callsign),
-    code: e.callsign,
-    direction: '-', // Keine Richtungsdaten für vergangene Flüge
-    status: 'Vergangen',
-    altitude: 0,
-    speed: 0,
-    distance: 0
-  }));
-}
-
-function saveRecentPast() {
-  try {
-    fs.writeFileSync(recentPastFile, JSON.stringify(recentPast, null, 2));
-  } catch (error) {
-    console.error('Fehler beim Speichern der recentPast-Daten:', error);
-  }
+  const pastEntries = Object.entries(firstContactData)
+    .filter(([cs, meta]) => typeof meta === 'object' && meta.status === 'Vergangen')
+    .sort((a, b) => new Date(b[1].lastActiveIso || 0) - new Date(a[1].lastActiveIso || 0))
+    .slice(0, appConfig.filtering?.maxDisplayCount || 7)
+    .map(([cs, meta]) => ({
+      time: formatTimeForDisplay(meta.firstTime),
+      callsign: displayNameForCallsign(cs),
+      code: cs,
+      direction: meta.direction || '-',
+      status: 'Vergangen',
+      altitude: 0,
+      speed: 0,
+      distance: 0
+    }));
+  return pastEntries;
 }
 
 // Entfernt alte/irrelevante Einträge aus first_contacts.json
@@ -542,12 +488,11 @@ function cleanFirstContacts() {
       delete firstContactData[cs];
       continue;
     }
-    const inRecent = recentPast.some(e => e.callsign === cs);
     const isActive = meta.status === 'Im Luftraum';
     const freshPast = meta.lastActiveIso
       ? (now - new Date(meta.lastActiveIso).getTime()) / 60000 <= PAST_RETENTION_MINUTES
       : false;
-    const keep = inRecent || isActive || freshPast;
+    const keep = isActive || freshPast;
     if (!keep) delete firstContactData[cs];
   }
   
@@ -558,30 +503,6 @@ function cleanFirstContacts() {
     }
   } else {
     saveFirstContactData();
-  }
-}
-
-function upsertRecentPast(entry) {
-  // entry: { callsign, firstTime, lastActiveIso, direction? }
-  const maxN = appConfig.data?.maxRecentPast || 7;
-  // Entferne gleiche Callsign-Einträge
-  recentPast = recentPast.filter(e => e.callsign !== entry.callsign);
-  recentPast.push({
-    callsign: entry.callsign,
-    firstTime: entry.firstTime,
-    lastActiveIso: entry.lastActiveIso,
-    direction: entry.direction || '-'
-  });
-  // Sortiere nach lastActiveIso absteigend und halte max N
-  recentPast.sort((a, b) => new Date(b.lastActiveIso) - new Date(a.lastActiveIso));
-  recentPast = recentPast.slice(0, maxN);
-  
-  if (supabase) {
-    saveRecentPastToDB(recentPast);
-    cleanFirstContactsDB();
-  } else {
-    saveRecentPast();
-    cleanFirstContacts();
   }
 }
 
@@ -736,25 +657,17 @@ async function getAircraftInAirspace() {
         // Wenn aktiv, letzte Aktivzeit aktualisieren
         if (status === 'Im Luftraum') {
           meta.lastActiveIso = meta.lastSeenIso;
-          meta.direction = direction; // Aktuelle Richtung speichern
+          if (!meta.direction || meta.direction === '-') {
+            meta.direction = direction; // Richtung nur beim ersten Mal setzen
+          }
         }
-        // Status speichern und bei Wechsel auf "Vergangen" in recentPast aufnehmen
+        // Status speichern
         const prev = meta.status;
         meta.status = status;
-        if (prev === 'Im Luftraum' && status === 'Vergangen' && meta.lastActiveIso) {
-          upsertRecentPast({ callsign: callsignRaw, firstTime: meta.firstTime, lastActiveIso: meta.lastActiveIso });
-          // Sofort aus first_contacts entfernen
-          delete firstContactData[callsignRaw];
-          if (supabase) {
-            deleteFirstContactFromDB(callsignRaw);
-          }
-        }
+        // Kein Löschen mehr bei Wechsel auf Vergangen – bleibt in first_contacts
         
         if (supabase) {
-          // Nur speichern, wenn noch vorhanden (nicht gerade gelöscht)
-          if (firstContactData[callsignRaw]) {
-            saveFirstContactToDB(callsignRaw, meta);
-          }
+          saveFirstContactToDB(callsignRaw, meta);
         } else {
           saveFirstContactData();
         }
@@ -777,15 +690,11 @@ async function getAircraftInAirspace() {
     for (const [cs, meta] of Object.entries(firstContactData)) {
       if (typeof meta !== 'object') continue;
       if (meta.status === 'Im Luftraum' && !seenNow.has(cs)) {
-        // Als vergangen markieren und direkt verschieben
+        // Als vergangen markieren (nicht löschen)
         meta.status = 'Vergangen';
-        if (meta.lastActiveIso) {
-          upsertRecentPast({ callsign: cs, firstTime: meta.firstTime, lastActiveIso: meta.lastActiveIso });
-        }
-        // Sofort aus first_contacts entfernen
-        delete firstContactData[cs];
+        // lastActiveIso bleibt wie gesetzt, lastSeenIso bleibt letzte Sichtung
         if (supabase) {
-          deleteFirstContactFromDB(cs);
+          saveFirstContactToDB(cs, meta);
         }
       }
     }
@@ -825,35 +734,16 @@ async function getAircraftInAirspace() {
           }))
       );
 
-    // Falls immer noch weniger als 7 Einträge: mit recentPast auffüllen
-    if (augmented.length < 7 && recentPast.length > 0) {
-      const need = 7 - augmented.length;
-      const toAdd = recentPast
-        .filter(e => !augmented.some(a => (a.code || a.callsign) === e.callsign))
-        .slice(0, need)
-        .map(e => ({
-          time: formatTimeForDisplay(e.firstTime),
-          callsign: displayNameForCallsign(e.callsign),
-          code: e.callsign,
-          direction: '-', // Keine Richtungsdaten für vergangene Flüge
-          status: 'Vergangen',
-          altitude: 0,
-          speed: 0,
-          distance: 0
-        }));
-      aircraft = augmented.concat(toAdd);
-    } else {
-      aircraft = augmented;
-    }
+    aircraft = augmented;
+
       // Doppelte entfernen (bevorzugt aktuelle Einträge)
       const seenCallsigns = new Set();
       aircraft = aircraft.filter(item => {
         const callsign = item.code || item.callsign;
         if (seenCallsigns.has(callsign)) {
-          // Bei Duplikaten: Behalte den aktiven Flug, sonst den ersten
           const existing = aircraft.find(a => (a.code || a.callsign) === callsign);
           if (existing && existing.status === 'Im Luftraum' && item.status !== 'Im Luftraum') {
-            return false; // Entferne den vergangenen Flug
+            return false;
           }
         }
         seenCallsigns.add(callsign);
@@ -862,9 +752,6 @@ async function getAircraftInAirspace() {
       // Retention: Vergangene Flüge nach Karenzzeit ausblenden
       aircraft = aircraft.filter(item => {
         if (item.status === 'Im Luftraum') return true;
-        // Halte Seeds aus recent_past.json unabhängig von firstContactData
-        const isInRecentPast = recentPast.some(e => e.callsign === (item.code || item.callsign));
-        if (isInRecentPast) return true;
         const meta = firstContactData[item.code || item.callsign];
         if (!meta || !meta.lastActiveIso) return false;
         const minutesSinceActive = (Date.now() - new Date(meta.lastActiveIso).getTime()) / 60000;
@@ -874,19 +761,15 @@ async function getAircraftInAirspace() {
         // Sortierung: Im Luftraum zuerst, dann nach Uhrzeit (neueste zuerst)
         if (a.status === 'Im Luftraum' && b.status !== 'Im Luftraum') return -1;
         if (a.status !== 'Im Luftraum' && b.status === 'Im Luftraum') return 1;
-        
-        // Innerhalb der Gruppen nach Uhrzeit sortieren (neueste zuerst)
-        // Zeit-String "HH:MM" in Minuten seit Mitternacht umwandeln für korrekte Sortierung
         const timeToMinutes = (timeStr) => {
           if (!timeStr || typeof timeStr !== 'string') return 0;
           const [hours, minutes] = timeStr.split(':').map(Number);
           return (hours || 0) * 60 + (minutes || 0);
         };
-        
         const aMinutes = timeToMinutes(a.time);
         const bMinutes = timeToMinutes(b.time);
-        return bMinutes - aMinutes; // Neueste zuerst
-      }).slice(0, appConfig.filtering?.maxDisplayCount || 7); // Maximal konfigurierbare Anzahl Flugzeuge anzeigen
+        return bMinutes - aMinutes;
+      }).slice(0, appConfig.filtering?.maxDisplayCount || 7);
 
     return aircraft;
   } catch (error) {
@@ -942,17 +825,11 @@ app.get('/api/debug', (req, res) => {
       tokenCache: tokenCache.getStats()
     },
     firstContactsCount: Object.keys(firstContactData).length,
-    recentPastCount: recentPast.length,
+    pastCount: Object.values(firstContactData).filter(m => m && m.status === 'Vergangen').length,
     timeDebug: {
       currentTime: new Date().toLocaleTimeString('de-DE'),
       currentTimeISO: new Date().toISOString(),
-      sampleFirstContact: Object.values(firstContactData)[0] || 'Keine Daten',
-      sampleRecentPast: recentPast[0] || 'Keine Daten'
-    },
-    duplicateCheck: {
-      firstContactsKeys: Object.keys(firstContactData),
-      recentPastCallsigns: recentPast.map(e => e.callsign),
-      potentialDuplicates: recentPast.map(e => e.callsign).filter((cs, i, arr) => arr.indexOf(cs) !== i)
+      sampleFirstContact: Object.values(firstContactData)[0] || 'Keine Daten'
     }
   };
   
