@@ -1,9 +1,10 @@
 // E-Ink Display optimierte Luftraumüberwachung
 class AirspaceMonitor {
     constructor() {
-        this.updateInterval = 30000; // 30 Sekunden
+        this.updateInterval = 15000; // 15 Sekunden (da wir nur DB abfragen)
         this.apiUrl = '/api/aircraft';
         this.isUpdating = false;
+        this.lastUpdate = null;
         
         this.init();
     }
@@ -34,6 +35,7 @@ class AirspaceMonitor {
         this.isUpdating = true;
         
         try {
+            console.log('🔄 Frontend: Updating data from', this.apiUrl);
             const response = await fetch(this.apiUrl);
             const data = await response.json();
             
@@ -44,9 +46,14 @@ class AirspaceMonitor {
             }
 
             this.updateDisplay(data);
+            this.lastUpdate = new Date().toLocaleTimeString('de-DE');
+            console.log('✅ Frontend: Data updated at', this.lastUpdate, '- Aircraft count:', data?.aircraft?.length || 0);
+            
+            // Update-Status anzeigen
+            this.updateStatusDisplay();
             
         } catch (error) {
-            console.error('Update Fehler:', error);
+            console.error('❌ Frontend Update Fehler:', error);
         } finally {
             this.isUpdating = false;
         }
@@ -97,10 +104,15 @@ class AirspaceMonitor {
         newRows.forEach(row => tbody.appendChild(row));
     }
 
-
-
+    updateStatusDisplay() {
+        // Zeige letztes Update in der Konsole und optional im DOM
+        if (this.lastUpdate) {
+            document.title = `Luftraum (${this.lastUpdate})`;
+        }
+    }
 
     startUpdateTimer() {
+        console.log(`🔄 Frontend: Starting auto-update every ${this.updateInterval/1000}s`);
         setInterval(() => {
             this.updateData();
         }, this.updateInterval);
