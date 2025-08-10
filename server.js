@@ -828,7 +828,7 @@ async function fetchAircraftSnapshotFromDB() {
     if (errP) throw errP;
     let rows = [...(active || []), ...(past || [])];
     let list = rows.map(r => {
-      const display = r.display_name || displayNameForCallsign(r.callsign);
+      const display = r.display_name || r.callsign;
       return {
         time: formatTimeForDisplay(r.first_time),
         callsign: display,
