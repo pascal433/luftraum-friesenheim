@@ -150,7 +150,7 @@ async function getOpenSkyToken(forceRefresh = false) {
         headers: {
           'Content-Type': 'application/x-www-form-urlencoded'
         },
-        timeout: 10000
+        timeout: 30000 // 30 Sekunden für OAuth
       }
     );
 
@@ -286,7 +286,7 @@ async function getAircraftInAirspace() {
     let response;
     try {
       response = await axios.get(`${OPENSKY_BASE_URL}/states/all`, {
-        timeout: 15000,
+        timeout: 30000, // 30 Sekunden für API Calls
         headers: {
           'Authorization': `Bearer ${token}`,
           'User-Agent': 'AirspaceMonitor/1.0 (https://github.com/your-repo)'
@@ -299,7 +299,7 @@ async function getAircraftInAirspace() {
         const refreshed = await getOpenSkyToken(true);
         if (refreshed) {
           response = await axios.get(`${OPENSKY_BASE_URL}/states/all`, {
-            timeout: 15000,
+            timeout: 30000, // 30 Sekunden für API Calls
             headers: {
               'Authorization': `Bearer ${refreshed}`,
               'User-Agent': 'AirspaceMonitor/1.0 (https://github.com/your-repo)'
