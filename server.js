@@ -101,9 +101,13 @@ async function loadFirstContactsFromDB() {
 
 // First Contact in Supabase speichern/updaten
 async function saveFirstContactToDB(callsign, contactData) {
-  if (!supabase || !WRITE_ENABLED) return true;
+  if (!supabase || !WRITE_ENABLED) {
+    console.log(`⏭️ Skipping DB write for ${callsign}: supabase=${!!supabase}, writeEnabled=${WRITE_ENABLED}`);
+    return true;
+  }
   
   try {
+    console.log(`💾 Saving to DB: ${callsign} -> ${contactData.status} (${contactData.firstTime})`);
     const { error } = await supabase
       .from('first_contacts')
       .upsert({
@@ -116,14 +120,17 @@ async function saveFirstContactToDB(callsign, contactData) {
     
     if (error) {
       console.log('⚠️ Supabase saveFirstContact Fehler:', error.message);
+      if (lastCronPoll) lastCronPoll.error = `DB Save Error: ${error.message}`;
       return false;
     }
+    console.log(`✅ Successfully saved ${callsign} to DB`);
     if (pollWriteTrack) {
       pollWriteCount += 1;
     }
     return true;
   } catch (error) {
     console.log('⚠️ Supabase saveFirstContact Fehler:', error.message);
+    if (lastCronPoll) lastCronPoll.error = `DB Save Exception: ${error.message}`;
     return false;
   }
 }
@@ -382,7 +389,10 @@ async function getOpenSkyToken(forceRefresh = false) {
         headers: {
           'Content-Type': 'application/x-www-form-urlencoded'
         },
-        timeout: 60000 // 60 Sekunden für OAuth (OpenSky ist langsam)
+        timeout: 60000, // 60 Sekunden für OAuth (OpenSky ist langsam)
+        // Retry bei Netzwerk-Timeouts
+        validateStatus: (status) => status < 500,
+        maxRedirects: 3
       }
     );
 
@@ -401,6 +411,31 @@ async function getOpenSkyToken(forceRefresh = false) {
       throw new Error(error);
     }
   } catch (error) {
+    // Bei Timeout-Fehlern: einmalig retry nach kurzer Pause
+    if (error.code === 'ETIMEDOUT' || error.code === 'ECONNRESET') {
+      console.warn(`⏰ Netzwerk-Timeout (${error.code}), retry in 5s...`);
+      try {
+        await new Promise(resolve => setTimeout(resolve, 5000));
+        const retryResponse = await axios.post(OPENSKY_AUTH_URL, 
+          `grant_type=client_credentials&client_id=${clientId}&client_secret=${clientSecret}`,
+          {
+            headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+            timeout: 30000 // Kürzerer Timeout für Retry
+          }
+        );
+        if (retryResponse.data && retryResponse.data.access_token) {
+          const token = retryResponse.data.access_token;
+          const expiresIn = parseInt(retryResponse.data.expires_in || '3600', 10);
+          const ttl = Math.max(300, expiresIn - 60);
+          tokenCache.set('access_token', token, ttl);
+          console.log('✅ OAuth Token retry erfolgreich');
+          return token;
+        }
+      } catch (retryError) {
+        console.error('❌ OAuth retry fehlgeschlagen:', retryError.message);
+      }
+    }
+    
     const errorMsg = `OAuth Token Fehler: ${error.message} (${error.code || 'unknown'})`;
     console.error(errorMsg);
     if (lastCronPoll) lastCronPoll.error = errorMsg;
