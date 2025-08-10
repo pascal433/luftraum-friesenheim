@@ -509,7 +509,7 @@ function nowHHMM() {
 }
 
 // Tracking für letzten Cron-Poll
-let lastCronPoll = { timestamp: null, found: 0, saved: 0, snapshot: 0, error: null };
+let lastCronPoll = { timestamp: null, seen: 0, found: 0, saved: 0, snapshot: 0, error: null };
 let pollWriteTrack = false;
 let pollWriteCount = 0;
 
@@ -879,11 +879,12 @@ app.get('/api/poll', async (req, res) => {
     pollWriteTrack = false;
     const snapshot = supabase ? (await fetchAircraftSnapshotFromDB()) || [] : result || [];
     lastCronPoll.timestamp = new Date().toISOString();
-    lastCronPoll.found = Array.isArray(result) ? result.length : 0;
-    lastCronPoll.saved = pollWriteCount;
+    lastCronPoll.seen = Array.isArray(result) ? result.length : 0; // Größe der verarbeiteten Liste
+    lastCronPoll.saved = pollWriteCount; // tatsächliche Upserts
+    lastCronPoll.found = lastCronPoll.saved; // "gefunden" = neue/aktualisierte Einträge
     lastCronPoll.snapshot = Array.isArray(snapshot) ? snapshot.length : 0;
     lastCronPoll.error = null;
-    res.json({ ok: true, found: lastCronPoll.found, saved: lastCronPoll.saved, snapshot: lastCronPoll.snapshot, timestamp: lastCronPoll.timestamp, writeEnabled: WRITE_ENABLED });
+    res.json({ ok: true, seen: lastCronPoll.seen, found: lastCronPoll.found, saved: lastCronPoll.saved, snapshot: lastCronPoll.snapshot, timestamp: lastCronPoll.timestamp, writeEnabled: WRITE_ENABLED });
   } catch (e) {
     console.error('Poll Fehler:', e);
     pollWriteTrack = false;
