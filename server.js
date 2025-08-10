@@ -118,7 +118,9 @@ async function saveFirstContactToDB(callsign, contactData) {
       console.log('⚠️ Supabase saveFirstContact Fehler:', error.message);
       return false;
     }
-    
+    if (pollWriteTrack) {
+      pollWriteCount += 1;
+    }
     return true;
   } catch (error) {
     console.log('⚠️ Supabase saveFirstContact Fehler:', error.message);
@@ -507,7 +509,9 @@ function nowHHMM() {
 }
 
 // Tracking für letzten Cron-Poll
-let lastCronPoll = { timestamp: null, found: 0, error: null };
+let lastCronPoll = { timestamp: null, found: 0, saved: 0, snapshot: 0, error: null };
+let pollWriteTrack = false;
+let pollWriteCount = 0;
 
 let initialDataLoaded = false;
 let initialLoadPromise = null;
@@ -857,13 +861,20 @@ app.get('/api/poll', async (req, res) => {
       await ensureInitialLoad();
     }
     cache.del('lastRequestTime');
+    pollWriteCount = 0;
+    pollWriteTrack = true;
     const result = await getAircraftInAirspace();
+    pollWriteTrack = false;
+    const snapshot = supabase ? (await fetchAircraftSnapshotFromDB()) || [] : result || [];
     lastCronPoll.timestamp = new Date().toISOString();
     lastCronPoll.found = Array.isArray(result) ? result.length : 0;
+    lastCronPoll.saved = pollWriteCount;
+    lastCronPoll.snapshot = Array.isArray(snapshot) ? snapshot.length : 0;
     lastCronPoll.error = null;
-    res.json({ ok: true, updated: lastCronPoll.found, timestamp: lastCronPoll.timestamp, writeEnabled: WRITE_ENABLED });
+    res.json({ ok: true, found: lastCronPoll.found, saved: lastCronPoll.saved, snapshot: lastCronPoll.snapshot, timestamp: lastCronPoll.timestamp, writeEnabled: WRITE_ENABLED });
   } catch (e) {
     console.error('Poll Fehler:', e);
+    pollWriteTrack = false;
     lastCronPoll.timestamp = new Date().toISOString();
     lastCronPoll.error = e?.message || String(e);
     res.status(500).json({ ok: false, error: lastCronPoll.error });
