@@ -517,7 +517,7 @@ function degreesToDirection(degrees) {
   // Normalisiere auf 0-360 Grad
   degrees = ((degrees % 360) + 360) % 360;
   
-  const directions = ['N', 'NO', 'O', 'SO', 'S', 'SW', 'W', 'NW'];
+  const directions = ['Nord', 'Nordost', 'Ost', 'Südost', 'Süd', 'Südwest', 'West', 'Nordwest'];
   const index = Math.round(degrees / 45) % 8;
   return directions[index];
 }
