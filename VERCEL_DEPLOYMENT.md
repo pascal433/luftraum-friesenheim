@@ -23,6 +23,8 @@
 ```
 OPENSKY_USERNAME = panders-api-client
 OPENSKY_PASSWORD = MojhqBC8vuZJYz1LKIPNRSipVpsR8CZD
+SUPABASE_URL = https://your-project.supabase.co
+SUPABASE_ANON_KEY = your_anon_key_here
 ```
 
 ### 4. Deploy starten
@@ -61,6 +63,8 @@ OPENSKY_PASSWORD = MojhqBC8vuZJYz1LKIPNRSipVpsR8CZD
 {
   "openskyConnectivity": "OK",
   "hasOpenSkyCredentials": true,
+  "hasSupabaseCredentials": true,
+  "usingSupabase": true,
   "environment": "production"
 }
 ```

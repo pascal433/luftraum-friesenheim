@@ -1,44 +1,50 @@
 {
-  "DERWA": {
-    "firstTime": "10:25",
-    "lastSeenIso": "2025-08-10T08:31:58.253Z",
-    "lastActiveIso": "2025-08-10T08:31:58.253Z",
+  "DLH76E": {
+    "firstTime": "11:43",
+    "lastSeenIso": "2025-08-10T09:43:56.094Z",
+    "lastActiveIso": "2025-08-10T09:43:56.094Z",
     "status": "Vergangen"
   },
-  "ENT93JZ": {
-    "firstTime": "10:27",
-    "lastSeenIso": "2025-08-10T08:31:58.256Z",
-    "lastActiveIso": "2025-08-10T08:31:58.256Z",
+  "EVE760": {
+    "firstTime": "11:54",
+    "lastSeenIso": "2025-08-10T09:55:55.814Z",
+    "lastActiveIso": "2025-08-10T09:55:55.814Z",
     "status": "Vergangen"
   },
-  "DLH83H": {
-    "firstTime": "10:30",
-    "lastSeenIso": "2025-08-10T08:31:58.256Z",
-    "lastActiveIso": "2025-08-10T08:31:58.256Z",
+  "EWG8NJ": {
+    "firstTime": "11:57",
+    "lastSeenIso": "2025-08-10T09:57:25.814Z",
+    "lastActiveIso": "2025-08-10T09:57:25.814Z",
     "status": "Vergangen"
   },
-  "DMZSL": {
-    "firstTime": "10:36",
-    "lastSeenIso": "2025-08-10T08:44:43.051Z",
-    "lastActiveIso": "2025-08-10T08:44:43.051Z",
+  "VJH773": {
+    "firstTime": "12:00",
+    "lastSeenIso": "2025-08-10T10:00:25.830Z",
+    "lastActiveIso": "2025-08-10T10:00:25.830Z",
     "status": "Vergangen"
   },
-  "DLH7JV": {
-    "firstTime": "10:44",
-    "lastSeenIso": "2025-08-10T08:46:13.036Z",
-    "lastActiveIso": "2025-08-10T08:46:13.036Z",
+  "ENT95DT": {
+    "firstTime": "12:01",
+    "lastSeenIso": "2025-08-10T10:01:55.820Z",
+    "lastActiveIso": "2025-08-10T10:01:55.820Z",
     "status": "Vergangen"
   },
-  "AFR51MK": {
-    "firstTime": "10:44",
-    "lastSeenIso": "2025-08-10T08:44:43.051Z",
-    "lastActiveIso": "2025-08-10T08:44:43.051Z",
+  "RYR157R": {
+    "firstTime": "12:01",
+    "lastSeenIso": "2025-08-10T10:03:25.829Z",
+    "lastActiveIso": "2025-08-10T10:03:25.829Z",
     "status": "Vergangen"
   },
-  "DLH436": {
-    "firstTime": "10:46",
-    "lastSeenIso": "2025-08-10T08:46:13.038Z",
-    "lastActiveIso": "2025-08-10T08:46:13.038Z",
+  "CFG4EM": {
+    "firstTime": "12:03",
+    "lastSeenIso": "2025-08-10T10:03:25.828Z",
+    "lastActiveIso": "2025-08-10T10:03:25.828Z",
     "status": "Vergangen"
+  },
+  "DMSSP": {
+    "firstTime": "12:12",
+    "lastSeenIso": "2025-08-10T10:12:42.921Z",
+    "lastActiveIso": "2025-08-10T10:12:42.921Z",
+    "status": "Im Luftraum"
   }
 }

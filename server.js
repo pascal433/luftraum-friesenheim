@@ -4,21 +4,37 @@ const cors = require('cors');
 const NodeCache = require('node-cache');
 const path = require('path');
 const fs = require('fs');
+const { createClient } = require('@supabase/supabase-js');
 require('dotenv').config();
 
-// Lade Konfiguration
-const configFile = './config.json';
+// Lade Konfiguration (optional für Serverless)
 let appConfig = {};
 try {
-  appConfig = JSON.parse(fs.readFileSync(configFile, 'utf8'));
-  console.log('✅ Konfiguration geladen aus config.json');
+  const configFile = './config.json';
+  if (fs.existsSync(configFile)) {
+    appConfig = JSON.parse(fs.readFileSync(configFile, 'utf8'));
+    console.log('✅ Konfiguration geladen aus config.json');
+  } else {
+    console.log('⚠️ config.json nicht gefunden, verwende Defaults');
+  }
 } catch (error) {
-  console.error('❌ Fehler beim Laden der config.json:', error.message);
-  process.exit(1);
+  console.log('⚠️ config.json Fehler, verwende Defaults:', error.message);
 }
 
 const app = express();
 const PORT = process.env.PORT || appConfig.display?.port || 3000;
+
+// Supabase Client initialisieren
+const supabaseUrl = process.env.SUPABASE_URL;
+const supabaseKey = process.env.SUPABASE_ANON_KEY;
+let supabase = null;
+
+if (supabaseUrl && supabaseKey) {
+  supabase = createClient(supabaseUrl, supabaseKey);
+  console.log('✅ Supabase Client initialisiert');
+} else {
+  console.log('⚠️ Supabase Credentials fehlen, verwende lokale JSON-Dateien');
+}
 
 // Cache für konfigurierbare Zeit (Rate Limit Compliance)
 const cache = new NodeCache({ stdTTL: appConfig.data?.cacheTimeoutSeconds || 60 });
@@ -39,32 +55,191 @@ let recentPast = [];
 // Kategorie-Filter (große Flugzeuge) aus config.json
 const CATEGORY_ALLOWLIST = new Set(appConfig.filtering?.categoryAllowlist || [3, 4, 5, 6]);
 
-// Erstkontakt-Daten laden
-try {
-  if (fs.existsSync(firstContactFile)) {
-    firstContactData = JSON.parse(fs.readFileSync(firstContactFile, 'utf8'));
+// === SUPABASE DATABASE FUNCTIONS ===
+
+// First Contacts aus Supabase laden
+async function loadFirstContactsFromDB() {
+  if (!supabase) return firstContactData;
+  
+  try {
+    const { data, error } = await supabase
+      .from('first_contacts')
+      .select('*');
+    
+    if (error) {
+      console.log('⚠️ Supabase first_contacts Fehler:', error.message);
+      return firstContactData;
+    }
+    
+    const dbData = {};
+    data.forEach(row => {
+      dbData[row.callsign] = {
+        firstTime: row.first_time,
+        lastSeenIso: row.last_seen_iso,
+        lastActiveIso: row.last_active_iso,
+        status: row.status
+      };
+    });
+    
+    console.log(`✅ ${data.length} First Contacts aus Supabase geladen`);
+    return dbData;
+  } catch (error) {
+    console.log('⚠️ Supabase loadFirstContacts Fehler:', error.message);
+    return firstContactData;
   }
-} catch (error) {
-  console.log('Erstkontakt-Datei konnte nicht geladen werden, starte neu');
-  firstContactData = {};
-}
-// Datei sicherstellen
-if (!fs.existsSync(firstContactFile)) {
-  try { fs.writeFileSync(firstContactFile, JSON.stringify(firstContactData, null, 2)); } catch {}
 }
 
-// Zuletzt vergangene Flüge laden
-try {
-  if (fs.existsSync(recentPastFile)) {
-    recentPast = JSON.parse(fs.readFileSync(recentPastFile, 'utf8'));
+// Recent Past aus Supabase laden
+async function loadRecentPastFromDB() {
+  if (!supabase) return recentPast;
+  
+  try {
+    const { data, error } = await supabase
+      .from('recent_past')
+      .select('*')
+      .order('last_active_iso', { ascending: false })
+      .limit(7);
+    
+    if (error) {
+      console.log('⚠️ Supabase recent_past Fehler:', error.message);
+      return recentPast;
+    }
+    
+    const dbData = data.map(row => ({
+      callsign: row.callsign,
+      firstTime: row.first_time,
+      lastActiveIso: row.last_active_iso
+    }));
+    
+    console.log(`✅ ${data.length} Recent Past aus Supabase geladen`);
+    return dbData;
+  } catch (error) {
+    console.log('⚠️ Supabase loadRecentPast Fehler:', error.message);
+    return recentPast;
   }
-} catch (error) {
-  console.log('recent_past.json konnte nicht geladen werden, starte neu');
-  recentPast = [];
 }
-// Datei sicherstellen
-if (!fs.existsSync(recentPastFile)) {
-  try { fs.writeFileSync(recentPastFile, JSON.stringify(recentPast, null, 2)); } catch {}
+
+// First Contact in Supabase speichern/updaten
+async function saveFirstContactToDB(callsign, contactData) {
+  if (!supabase) return saveFirstContactData();
+  
+  try {
+    const { error } = await supabase
+      .from('first_contacts')
+      .upsert({
+        callsign: callsign,
+        first_time: contactData.firstTime,
+        last_seen_iso: contactData.lastSeenIso,
+        last_active_iso: contactData.lastActiveIso,
+        status: contactData.status
+      });
+    
+    if (error) {
+      console.log('⚠️ Supabase saveFirstContact Fehler:', error.message);
+      return false;
+    }
+    
+    return true;
+  } catch (error) {
+    console.log('⚠️ Supabase saveFirstContact Fehler:', error.message);
+    return false;
+  }
+}
+
+// Recent Past in Supabase speichern
+async function saveRecentPastToDB(pastData) {
+  if (!supabase) return saveRecentPast();
+  
+  try {
+    // Zuerst alte Einträge löschen
+    await supabase.from('recent_past').delete().neq('id', 0);
+    
+    // Neue Einträge einfügen
+    if (pastData.length > 0) {
+      const { error } = await supabase
+        .from('recent_past')
+        .insert(pastData.map(item => ({
+          callsign: item.callsign,
+          first_time: item.firstTime,
+          last_active_iso: item.lastActiveIso
+        })));
+      
+      if (error) {
+        console.log('⚠️ Supabase saveRecentPast Fehler:', error.message);
+        return false;
+      }
+    }
+    
+    return true;
+  } catch (error) {
+    console.log('⚠️ Supabase saveRecentPast Fehler:', error.message);
+    return false;
+  }
+}
+
+// Alte First Contacts aus Supabase löschen
+async function cleanFirstContactsDB() {
+  if (!supabase) return cleanFirstContacts();
+  
+  try {
+    const cutoffTime = new Date();
+    cutoffTime.setMinutes(cutoffTime.getMinutes() - PAST_RETENTION_MINUTES);
+    
+    const { error } = await supabase
+      .from('first_contacts')
+      .delete()
+      .eq('status', 'Vergangen')
+      .lt('last_active_iso', cutoffTime.toISOString());
+    
+    if (error) {
+      console.log('⚠️ Supabase cleanFirstContacts Fehler:', error.message);
+      return false;
+    }
+    
+    return true;
+  } catch (error) {
+    console.log('⚠️ Supabase cleanFirstContacts Fehler:', error.message);
+    return false;
+  }
+}
+
+// Daten beim Start laden (Fallback für lokale Entwicklung)
+if (!supabase) {
+  // Erstkontakt-Daten laden
+  try {
+    if (fs.existsSync(firstContactFile)) {
+      firstContactData = JSON.parse(fs.readFileSync(firstContactFile, 'utf8'));
+    }
+  } catch (error) {
+    console.log('Erstkontakt-Datei konnte nicht geladen werden, starte neu');
+    firstContactData = {};
+  }
+  // Datei sicherstellen
+  if (!fs.existsSync(firstContactFile)) {
+    try { fs.writeFileSync(firstContactFile, JSON.stringify(firstContactData, null, 2)); } catch {}
+  }
+
+  // Zuletzt vergangene Flüge laden
+  try {
+    if (fs.existsSync(recentPastFile)) {
+      recentPast = JSON.parse(fs.readFileSync(recentPastFile, 'utf8'));
+    }
+  } catch (error) {
+    console.log('recent_past.json konnte nicht geladen werden, starte neu');
+    recentPast = [];
+  }
+  // Datei sicherstellen
+  if (!fs.existsSync(recentPastFile)) {
+    try { fs.writeFileSync(recentPastFile, JSON.stringify(recentPast, null, 2)); } catch {}
+  }
+} else {
+  // Supabase: Daten beim Start laden
+  loadFirstContactsFromDB().then(data => {
+    firstContactData = data;
+  });
+  loadRecentPastFromDB().then(data => {
+    recentPast = data;
+  });
 }
 
 // Datenmigration: Älteres Format (reiner Zeit-String) -> neues Objektformat
@@ -220,7 +395,15 @@ function cleanFirstContacts() {
     const keep = inRecent || isActive || freshPast;
     if (!keep) delete firstContactData[cs];
   }
-  saveFirstContactData();
+  
+  if (supabase) {
+    // Alle geänderten Contacts in Supabase speichern
+    for (const [callsign, data] of Object.entries(firstContactData)) {
+      saveFirstContactToDB(callsign, data);
+    }
+  } else {
+    saveFirstContactData();
+  }
 }
 
 function upsertRecentPast(entry) {
@@ -231,9 +414,14 @@ function upsertRecentPast(entry) {
   // Sortiere nach lastActiveIso absteigend und halte max 7
   recentPast.sort((a, b) => new Date(b.lastActiveIso) - new Date(a.lastActiveIso));
   recentPast = recentPast.slice(0, appConfig.filtering?.maxDisplayCount || 7);
-  saveRecentPast();
-  // Beim Verschieben gleichzeitig Altlasten aus first_contacts bereinigen
-  cleanFirstContacts();
+  
+  if (supabase) {
+    saveRecentPastToDB(recentPast);
+    cleanFirstContactsDB();
+  } else {
+    saveRecentPast();
+    cleanFirstContacts();
+  }
 }
 
 // Hilfsfunktion: Entfernung zwischen zwei Koordinaten berechnen (Haversine)
@@ -371,7 +559,12 @@ async function getAircraftInAirspace() {
         if (prev === 'Im Luftraum' && status === 'Vergangen' && meta.lastActiveIso) {
           upsertRecentPast({ callsign: callsignRaw, firstTime: meta.firstTime, lastActiveIso: meta.lastActiveIso });
         }
-        saveFirstContactData();
+        
+        if (supabase) {
+          saveFirstContactToDB(callsignRaw, meta);
+        } else {
+          saveFirstContactData();
+        }
         
         return {
           time: meta.firstTime, // Erstkontakt Zeit verwenden
@@ -398,7 +591,17 @@ async function getAircraftInAirspace() {
         }
       }
     }
-    saveFirstContactData();
+    
+    if (supabase) {
+      // Alle geänderten Contacts in Supabase speichern
+      for (const [callsign, data] of Object.entries(firstContactData)) {
+        if (typeof data === 'object') {
+          saveFirstContactToDB(callsign, data);
+        }
+      }
+    } else {
+      saveFirstContactData();
+    }
 
     // Flüge, die nicht mehr in der API sind, aber kürzlich aktiv waren, ergänzen und als "Vergangen" listen
     const augmented = aircraft
@@ -511,16 +714,18 @@ app.get('/api/config', (req, res) => {
 // Debug endpoint for Render troubleshooting
 app.get('/api/debug', async (req, res) => {
   try {
-    const debugInfo = {
-      timestamp: new Date().toISOString(),
-      environment: process.env.NODE_ENV || 'development',
-      hasOpenSkyCredentials: !!(process.env.OPENSKY_USERNAME && process.env.OPENSKY_PASSWORD),
-      cacheStatus: {
-        aircraftCached: !!cache.get('aircraft'),
-        tokenCached: !!tokenCache.get('access_token')
-      },
-      lastRequestTime: cache.get('lastRequestTime') || 'never'
-    };
+          const debugInfo = {
+        timestamp: new Date().toISOString(),
+        environment: process.env.NODE_ENV || 'development',
+        hasOpenSkyCredentials: !!(process.env.OPENSKY_USERNAME && process.env.OPENSKY_PASSWORD),
+        hasSupabaseCredentials: !!(process.env.SUPABASE_URL && process.env.SUPABASE_ANON_KEY),
+        usingSupabase: !!supabase,
+        cacheStatus: {
+          aircraftCached: !!cache.get('aircraft'),
+          tokenCached: !!tokenCache.get('access_token')
+        },
+        lastRequestTime: cache.get('lastRequestTime') || 'never'
+      };
     
     // Test OpenSky connectivity (ohne echte API calls)
     const testUrl = 'https://opensky-network.org';
