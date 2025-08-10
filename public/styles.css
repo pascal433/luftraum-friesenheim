@@ -1,0 +1,234 @@
+/* Airport Board Design für E-Ink Display (800x480px) */
+
+* {
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+}
+
+body {
+    font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+    background-color: #000000;
+    color: #ffffff;
+    overflow: hidden;
+    width: 800px;
+    height: 480px;
+    position: fixed;
+    top: 0;
+    left: 0;
+    -webkit-font-smoothing: none;
+    -moz-osx-font-smoothing: none;
+    font-smooth: never;
+}
+
+.container {
+    width: 100%;
+    height: 100%;
+    display: flex;
+    flex-direction: column;
+}
+
+/* Header Bar - Authentisches Airport Board Design */
+.header {
+    background-color: #ffcc00;
+    color: #000000;
+    padding: 15px 20px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    font-weight: 900;
+    font-size: 16px;
+    border-bottom: 3px solid #000000;
+    text-transform: uppercase;
+}
+
+.title {
+    font-size: 18px;
+    font-weight: 900;
+    letter-spacing: 2px;
+    font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+}
+
+
+
+/* Main Content */
+.main-content {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    background-color: #000000;
+}
+
+/* Table Container */
+.table-container {
+    flex: 1;
+    overflow: hidden;
+}
+
+/* Aircraft Table - Airport Board Style */
+.aircraft-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 14px;
+    font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+}
+
+.aircraft-table thead {
+    background-color: #1a1a1a;
+    border-bottom: 3px solid #333333;
+}
+
+.aircraft-table th {
+    padding: 15px 10px;
+    text-align: left;
+    font-weight: 900;
+    color: #ffffff;
+    border-right: 2px solid #333333;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    font-size: 13px;
+}
+
+.aircraft-table th:last-child {
+    border-right: none;
+}
+
+.aircraft-table tbody tr {
+    border-bottom: 2px solid #333333;
+    transition: background-color 0.1s ease;
+}
+
+.aircraft-table tbody tr:hover {
+    background-color: #1a1a1a;
+}
+
+.aircraft-table td {
+    padding: 12px 10px;
+    border-right: 2px solid #333333;
+    font-weight: 700;
+}
+
+.aircraft-table td:last-child {
+    border-right: none;
+}
+
+/* Column Styling - Airport Board */
+.aircraft-table td:nth-child(1) { /* Zeit */
+    color: #ffcc00;
+    font-weight: 900;
+    width: 100px;
+    text-align: left;
+}
+
+.aircraft-table td:nth-child(2) { /* Flug */
+    color: #ffffff;
+    font-weight: 700;
+    width: 150px;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+}
+
+.aircraft-table td:nth-child(3) { /* Richtung */
+    color: #cccccc;
+    font-weight: 700;
+    width: 80px;
+    text-align: left;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+}
+
+.aircraft-table td:nth-child(4) { /* Status */
+    width: 150px;
+    text-align: left;
+    font-weight: 900;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+}
+
+/* Status Colors - Airport Board */
+.status-active {
+    color: #00ff00 !important;
+    font-weight: 900;
+    text-shadow: 0 0 5px #00ff00;
+}
+
+.status-past {
+    color: #666666 !important;
+    font-weight: 700;
+}
+
+/* Loading Row */
+.loading-row {
+    text-align: center;
+    color: #666666;
+    font-style: italic;
+    font-weight: 700;
+}
+
+/* No Aircraft Message */
+.no-aircraft {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    align-items: center;
+    color: #666666;
+    text-align: center;
+}
+
+.no-aircraft-text {
+    font-size: 16px;
+    font-weight: 900;
+    text-transform: uppercase;
+    letter-spacing: 2px;
+}
+
+
+
+/* E-Ink Optimierungen */
+@media (prefers-color-scheme: dark) {
+    /* Zusätzliche Optimierungen für dunkle Displays */
+    body {
+        background-color: #000000;
+    }
+}
+
+/* Responsive für verschiedene E-Ink Display Größen */
+@media screen and (max-width: 800px) {
+    body {
+        width: 100vw;
+        height: 100vh;
+    }
+    
+    .aircraft-table {
+        font-size: 14px;
+    }
+    
+    .header {
+        font-size: 16px;
+        padding: 10px 15px;
+    }
+}
+
+/* Animation für E-Ink (minimal) */
+@keyframes fadeIn {
+    from { opacity: 0; }
+    to { opacity: 1; }
+}
+
+.aircraft-table tbody tr {
+    animation: fadeIn 0.3s ease-in;
+}
+
+/* High Contrast Mode */
+@media (prefers-contrast: high) {
+    .aircraft-table th {
+        background-color: #000000;
+        color: #ffffff;
+        border-bottom: 3px solid #ffffff;
+    }
+    
+    .aircraft-table tbody tr {
+        border-bottom: 2px solid #ffffff;
+    }
+}

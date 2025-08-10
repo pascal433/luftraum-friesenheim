@@ -1,0 +1,37 @@
+[
+  {
+    "callsign": "DLH76M",
+    "firstTime": "10:09",
+    "lastActiveIso": "2025-08-10T08:11:05.185Z"
+  },
+  {
+    "callsign": "DLH66K",
+    "firstTime": "10:07",
+    "lastActiveIso": "2025-08-10T08:08:35.127Z"
+  },
+  {
+    "callsign": "SWR911F",
+    "firstTime": "10:05",
+    "lastActiveIso": "2025-08-10T08:06:35.095Z"
+  },
+  {
+    "callsign": "DLH44T",
+    "firstTime": "10:05",
+    "lastActiveIso": "2025-08-10T08:05:05.262Z"
+  },
+  {
+    "callsign": "CMA626",
+    "firstTime": "09:37",
+    "lastActiveIso": "2025-08-10T07:37:13.539Z"
+  },
+  {
+    "callsign": "DEVTP",
+    "firstTime": "09:35",
+    "lastActiveIso": "2025-08-10T07:37:13.536Z"
+  },
+  {
+    "callsign": "DLH61H",
+    "firstTime": "09:34",
+    "lastActiveIso": "2025-08-10T07:35:43.487Z"
+  }
+]

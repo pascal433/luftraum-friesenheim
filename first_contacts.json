@@ -1,0 +1,44 @@
+{
+  "DLH61H": {
+    "firstTime": "09:34",
+    "lastSeenIso": "2025-08-10T07:35:43.487Z",
+    "lastActiveIso": "2025-08-10T07:35:43.487Z",
+    "status": "Vergangen"
+  },
+  "DEVTP": {
+    "firstTime": "09:35",
+    "lastSeenIso": "2025-08-10T07:37:13.536Z",
+    "lastActiveIso": "2025-08-10T07:37:13.536Z",
+    "status": "Vergangen"
+  },
+  "CMA626": {
+    "firstTime": "09:37",
+    "lastSeenIso": "2025-08-10T07:37:13.539Z",
+    "lastActiveIso": "2025-08-10T07:37:13.539Z",
+    "status": "Vergangen"
+  },
+  "DLH44T": {
+    "firstTime": "10:05",
+    "lastSeenIso": "2025-08-10T08:05:05.262Z",
+    "lastActiveIso": "2025-08-10T08:05:05.262Z",
+    "status": "Vergangen"
+  },
+  "SWR911F": {
+    "firstTime": "10:05",
+    "lastSeenIso": "2025-08-10T08:06:35.095Z",
+    "lastActiveIso": "2025-08-10T08:06:35.095Z",
+    "status": "Vergangen"
+  },
+  "DLH66K": {
+    "firstTime": "10:07",
+    "lastSeenIso": "2025-08-10T08:08:35.127Z",
+    "lastActiveIso": "2025-08-10T08:08:35.127Z",
+    "status": "Vergangen"
+  },
+  "DLH76M": {
+    "firstTime": "10:09",
+    "lastSeenIso": "2025-08-10T08:11:05.185Z",
+    "lastActiveIso": "2025-08-10T08:11:05.185Z",
+    "status": "Vergangen"
+  }
+}

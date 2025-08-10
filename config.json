@@ -1,0 +1,22 @@
+{
+  "display": {
+    "title": "Luftraum Friesenheim (Baden)",
+    "port": 3000
+  },
+  "monitoring": {
+    "coordinates": {
+      "lat": 48.3705,
+      "lon": 7.8819
+    },
+    "radius": 15
+  },
+  "filtering": {
+    "categoryAllowlist": [4, 5],
+    "maxDisplayCount": 7
+  },
+  "data": {
+    "pastRetentionMinutes": 10,
+    "cacheTimeoutSeconds": 60,
+    "rateLimitDelaySeconds": 6
+  }
+}

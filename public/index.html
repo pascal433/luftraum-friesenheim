@@ -1,0 +1,48 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Luftraumüberwachung</title>
+    <link rel="stylesheet" href="styles.css">
+    <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>✈️</text></svg>">
+</head>
+<body>
+    <div class="container">
+        <!-- Header Bar -->
+        <header class="header">
+            <div class="title" id="header-title">LUFTRAUMÜBERWACHUNG</div>
+        </header>
+
+        <!-- Main Content -->
+        <main class="main-content">
+
+            <!-- Aircraft Table -->
+            <div class="table-container">
+                <table class="aircraft-table">
+                    <thead>
+                        <tr>
+                            <th>Zeit</th>
+                            <th>Flug</th>
+                            <th>Richtung</th>
+                            <th>Status</th>
+                        </tr>
+                    </thead>
+                    <tbody id="aircraft-tbody">
+                        <tr class="loading-row">
+                            <td colspan="4">Lade Flugzeugdaten...</td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+
+            <!-- No Aircraft Message -->
+            <div id="no-aircraft" class="no-aircraft" style="display: none;">
+                <div class="no-aircraft-text">KEINE FLUGZEUGE IM ÜBERWACHUNGSGEBIET</div>
+            </div>
+        </main>
+    </div>
+
+    <script src="script.js"></script>
+</body>
+</html>
