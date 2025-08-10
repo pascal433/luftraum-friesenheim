@@ -891,10 +891,6 @@ app.get('/api/aircraft', async (req, res) => {
   }
 });
 
-app.get('/api/config', (req, res) => {
-  res.json(appConfig);
-});
-
 // Debug endpoint for Render troubleshooting
 app.get('/api/debug', (req, res) => {
   const debugInfo = {

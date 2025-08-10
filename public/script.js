@@ -3,7 +3,6 @@ class AirspaceMonitor {
     constructor() {
         this.updateInterval = 30000; // 30 Sekunden
         this.apiUrl = '/api/aircraft';
-        this.configUrl = '/api/config';
         this.isUpdating = false;
         
         this.init();
@@ -11,9 +10,6 @@ class AirspaceMonitor {
 
     async init() {
         try {
-            // Konfiguration laden
-            await this.loadConfig();
-            
             // Erste Daten laden
             await this.updateData();
             
@@ -32,19 +28,6 @@ class AirspaceMonitor {
         }
     }
 
-    async loadConfig() {
-        try {
-            const response = await fetch(this.configUrl);
-            const config = await response.json();
-            
-            // Titel aus Konfiguration verwenden
-            document.getElementById('header-title').textContent = config.title.toUpperCase();
-            
-        } catch (error) {
-            console.error('Konfigurationsfehler:', error);
-        }
-    }
-
     async updateData() {
         if (this.isUpdating) return;
         
@@ -54,6 +37,12 @@ class AirspaceMonitor {
             const response = await fetch(this.apiUrl);
             const data = await response.json();
             
+            // Titel aus API übernehmen (kommt aus ENV/server)
+            if (data && data.title) {
+                const header = document.getElementById('header-title');
+                if (header) header.textContent = String(data.title).toUpperCase();
+            }
+
             this.updateDisplay(data);
             
         } catch (error) {
@@ -67,7 +56,7 @@ class AirspaceMonitor {
         const tbody = document.getElementById('aircraft-tbody');
         const noAircraft = document.getElementById('no-aircraft');
         
-        if (data.aircraft.length === 0) {
+        if (!data || !Array.isArray(data.aircraft) || data.aircraft.length === 0) {
             // Keine Flugzeuge
             tbody.innerHTML = '';
             noAircraft.style.display = 'flex';
@@ -107,7 +96,6 @@ class AirspaceMonitor {
         tbody.innerHTML = '';
         newRows.forEach(row => tbody.appendChild(row));
     }
-
 
 
 
