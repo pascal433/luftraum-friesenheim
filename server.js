@@ -485,15 +485,25 @@ function formatTimeForDisplay(value) {
     }
     const date = new Date(value);
     if (isNaN(date.getTime())) return '-';
-    return date.toLocaleTimeString('de-DE', { 
-      hour: '2-digit', 
+    return new Intl.DateTimeFormat('de-DE', {
+      hour: '2-digit',
       minute: '2-digit',
-      hour12: false 
-    });
+      hour12: false,
+      timeZone: TIMEZONE
+    }).format(date);
   } catch (error) {
     console.error('Fehler beim Formatieren der Zeit:', error);
     return '-';
   }
+}
+
+function nowHHMM() {
+  return new Intl.DateTimeFormat('de-DE', {
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: false,
+    timeZone: TIMEZONE
+  }).format(new Date());
 }
 
 // Tracking für letzten Cron-Poll
@@ -610,10 +620,7 @@ async function getAircraftInAirspace() {
 
         const callsignRaw = (state[1] || 'UNKNOWN').trim();
         const callsign = displayNameForCallsign(callsignRaw);
-        const currentTime = new Date().toLocaleTimeString('de-DE', { 
-          hour: '2-digit', 
-          minute: '2-digit' 
-        });
+        const currentTime = nowHHMM();
         
         // Status bestimmen basierend auf Höhe und Geschwindigkeit
         let status = 'Vergangen';
