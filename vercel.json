@@ -11,6 +11,6 @@
     { "src": "/(.*)", "dest": "/server.js" }
   ],
   "crons": [
-    { "path": "/api/poll", "schedule": "*/2 * * * *" }
+    { "path": "/api/poll", "schedule": "* * * * *" }
   ]
 }
