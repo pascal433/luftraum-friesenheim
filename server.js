@@ -86,7 +86,8 @@ async function loadFirstContactsFromDB() {
         firstTime: row.first_time,
         lastSeenIso: row.last_seen_iso,
         lastActiveIso: row.last_active_iso,
-        status: row.status
+        status: row.status,
+        direction: row.direction || '-'
       };
     });
     
@@ -140,7 +141,8 @@ async function saveFirstContactToDB(callsign, contactData) {
         first_time: contactData.firstTime,
         last_seen_iso: contactData.lastSeenIso,
         last_active_iso: contactData.lastActiveIso,
-        status: contactData.status
+        status: contactData.status,
+        direction: contactData.direction || '-'
       });
     
     if (error) {
@@ -288,26 +290,62 @@ const OPENSKY_AUTH_URL = 'https://auth.opensky-network.org/auth/realms/opensky-n
 
 // Airline Codes Mapping (Prefix -> Airline Name)
 let airlineCodes = {};
-try {
-  const airlinePaths = ['./airlines.json', 'airlines.json', process.cwd() + '/airlines.json'];
-  let airlinesFile = null;
+
+// Airlines aus Supabase laden
+async function loadAirlinesFromDB() {
+  if (!supabase) return airlineCodes;
   
-  for (const path of airlinePaths) {
-    if (fs.existsSync(path)) {
-      airlinesFile = path;
-      break;
+  try {
+    const { data, error } = await supabase
+      .from('airlines')
+      .select('code, name');
+    
+    if (error) {
+      console.log('⚠️ Supabase airlines Fehler:', error.message);
+      return airlineCodes;
     }
+    
+    const dbData = {};
+    data.forEach(row => {
+      dbData[row.code] = row.name;
+    });
+    
+    console.log(`✅ ${data.length} Airlines aus Supabase geladen`);
+    return dbData;
+  } catch (error) {
+    console.log('⚠️ Supabase loadAirlines Fehler:', error.message);
+    return airlineCodes;
   }
-  
-  if (airlinesFile) {
-    airlineCodes = JSON.parse(fs.readFileSync(airlinesFile, 'utf8'));
-    console.log('✅ Airlines geladen aus airlines.json');
-  } else {
-    console.log('⚠️ airlines.json nicht gefunden, verwende leere Mapping-Tabelle');
+}
+
+// Fallback: Airlines aus JSON-Datei laden (für lokale Entwicklung ohne Supabase)
+if (!supabase) {
+  try {
+    const airlinePaths = ['./airlines.json', 'airlines.json', process.cwd() + '/airlines.json'];
+    let airlinesFile = null;
+    
+    for (const path of airlinePaths) {
+      if (fs.existsSync(path)) {
+        airlinesFile = path;
+        break;
+      }
+    }
+    
+    if (airlinesFile) {
+      airlineCodes = JSON.parse(fs.readFileSync(airlinesFile, 'utf8'));
+      console.log('✅ Airlines geladen aus airlines.json');
+    } else {
+      console.log('⚠️ airlines.json nicht gefunden, verwende leere Mapping-Tabelle');
+    }
+  } catch (e) {
+    console.warn('⚠️ airlines.json Fehler, verwende leere Mapping-Tabelle:', e.message);
+    airlineCodes = {};
   }
-} catch (e) {
-  console.warn('⚠️ airlines.json Fehler, verwende leere Mapping-Tabelle:', e.message);
-  airlineCodes = {};
+} else {
+  // Supabase: Airlines beim Start laden
+  loadAirlinesFromDB().then(data => {
+    airlineCodes = data;
+  });
 }
 
 function displayNameForCallsign(raw) {
@@ -562,10 +600,13 @@ async function getAircraftInAirspace() {
           status = 'Im Luftraum';
         }
         
+        // Richtung berechnen
+        const direction = degreesToDirection(state[10]);
+        
         // Erstkontakt / Status-Timeline verwalten (persistiert)
         let meta = firstContactData[callsignRaw];
         if (!meta) {
-          meta = { firstTime: currentTime, lastSeenIso: null, lastActiveIso: null, status };
+          meta = { firstTime: currentTime, lastSeenIso: null, lastActiveIso: null, status, direction };
           firstContactData[callsignRaw] = meta;
         }
         // Sichtung in diesem Poll
@@ -573,6 +614,7 @@ async function getAircraftInAirspace() {
         // Wenn aktiv, letzte Aktivzeit aktualisieren
         if (status === 'Im Luftraum') {
           meta.lastActiveIso = meta.lastSeenIso;
+          meta.direction = direction; // Aktuelle Richtung speichern
         }
         // Status speichern und bei Wechsel auf "Vergangen" in recentPast aufnehmen
         const prev = meta.status;
@@ -591,7 +633,7 @@ async function getAircraftInAirspace() {
           time: meta.firstTime, // Erstkontakt Zeit verwenden
           callsign: callsign,
           code: callsignRaw,
-          direction: degreesToDirection(state[10]), // state[10] ist track (true track in decimal degrees)
+          direction: direction, // Aktuelle Richtung
           status: status,
           altitude: state[7] || 0,
           speed: state[9] || 0,
@@ -620,6 +662,8 @@ async function getAircraftInAirspace() {
           saveFirstContactToDB(callsign, data);
         }
       }
+      // Regelmäßig alte Einträge bereinigen
+      cleanFirstContactsDB();
     } else {
       saveFirstContactData();
     }
@@ -638,7 +682,7 @@ async function getAircraftInAirspace() {
             time: meta.firstTime,
             callsign: displayNameForCallsign(cs),
             code: cs,
-            direction: '-', // Keine Richtungsdaten für vergangene Flüge
+            direction: meta.direction || '-', // Gespeicherte Richtung verwenden
             status: 'Vergangen',
             altitude: 0,
             speed: 0,
@@ -686,8 +730,18 @@ async function getAircraftInAirspace() {
         // Sortierung: Im Luftraum zuerst, dann nach Uhrzeit (neueste zuerst)
         if (a.status === 'Im Luftraum' && b.status !== 'Im Luftraum') return -1;
         if (a.status !== 'Im Luftraum' && b.status === 'Im Luftraum') return 1;
+        
         // Innerhalb der Gruppen nach Uhrzeit sortieren (neueste zuerst)
-        return b.time.localeCompare(a.time);
+        // Zeit-String "HH:MM" in Minuten seit Mitternacht umwandeln für korrekte Sortierung
+        const timeToMinutes = (timeStr) => {
+          if (!timeStr || typeof timeStr !== 'string') return 0;
+          const [hours, minutes] = timeStr.split(':').map(Number);
+          return (hours || 0) * 60 + (minutes || 0);
+        };
+        
+        const aMinutes = timeToMinutes(a.time);
+        const bMinutes = timeToMinutes(b.time);
+        return bMinutes - aMinutes; // Neueste zuerst
       }).slice(0, appConfig.filtering?.maxDisplayCount || 7); // Maximal konfigurierbare Anzahl Flugzeuge anzeigen
 
     return aircraft;
