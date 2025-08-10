@@ -1,10 +1,4 @@
 {
-  "DLH76E": {
-    "firstTime": "11:43",
-    "lastSeenIso": "2025-08-10T09:43:56.094Z",
-    "lastActiveIso": "2025-08-10T09:43:56.094Z",
-    "status": "Vergangen"
-  },
   "EVE760": {
     "firstTime": "11:54",
     "lastSeenIso": "2025-08-10T09:55:55.814Z",
@@ -43,8 +37,14 @@
   },
   "DMSSP": {
     "firstTime": "12:12",
-    "lastSeenIso": "2025-08-10T10:12:42.921Z",
-    "lastActiveIso": "2025-08-10T10:12:42.921Z",
+    "lastSeenIso": "2025-08-10T10:14:02.388Z",
+    "lastActiveIso": "2025-08-10T10:14:02.388Z",
+    "status": "Vergangen"
+  },
+  "N249A": {
+    "firstTime": "12:15",
+    "lastSeenIso": "2025-08-10T10:15:32.436Z",
+    "lastActiveIso": "2025-08-10T10:15:32.436Z",
     "status": "Im Luftraum"
   }
 }
