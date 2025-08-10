@@ -478,21 +478,19 @@ function degreesToDirection(degrees) {
   return directions[index];
 }
 
-// Hilfsfunktion: ISO- oder HH:MM-Zeit zu HH:MM Format konvertieren
+// Hilfsfunktion: ISO- oder HH:MM-Zeit zu HH:MM Format konvertieren (mit Stunden-Offset)
 function formatTimeForDisplay(value) {
   if (!value) return '-';
   try {
     if (typeof value === 'string' && /^\d{1,2}:\d{2}$/.test(value.trim())) {
       return value.trim();
     }
-    const date = new Date(value);
-    if (isNaN(date.getTime())) return '-';
-    return new Intl.DateTimeFormat('de-DE', {
-      hour: '2-digit',
-      minute: '2-digit',
-      hour12: false,
-      timeZone: TIMEZONE
-    }).format(date);
+    const base = new Date(value);
+    if (isNaN(base.getTime())) return '-';
+    const d = new Date(base.getTime() + OFFSET_MS);
+    const h = String(d.getUTCHours()).padStart(2, '0');
+    const m = String(d.getUTCMinutes()).padStart(2, '0');
+    return `${h}:${m}`;
   } catch (error) {
     console.error('Fehler beim Formatieren der Zeit:', error);
     return '-';
@@ -500,12 +498,10 @@ function formatTimeForDisplay(value) {
 }
 
 function nowHHMM() {
-  return new Intl.DateTimeFormat('de-DE', {
-    hour: '2-digit',
-    minute: '2-digit',
-    hour12: false,
-    timeZone: TIMEZONE
-  }).format(new Date());
+  const d = new Date(Date.now() + OFFSET_MS);
+  const h = String(d.getUTCHours()).padStart(2, '0');
+  const m = String(d.getUTCMinutes()).padStart(2, '0');
+  return `${h}:${m}`;
 }
 
 // Tracking für letzten Cron-Poll
