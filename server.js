@@ -541,7 +541,7 @@ async function ensureInitialLoad() {
 }
 
 // Flugzeuge im Luftraum abrufen
-async function getAircraftInAirspace() {
+async function getAircraftInAirspace(metrics) {
   try {
     // Sicherstellen, dass First Contacts bei Serverless-Kaltstart geladen sind
     if (supabase) {
@@ -600,22 +600,32 @@ async function getAircraftInAirspace() {
       return buildFallbackAircraft();
     }
 
-    let aircraft = response.data.states
-      .filter(state => {
-        if (!state[5] || !state[6]) return false; // Keine Koordinaten
-        // Kategorie-Filter: state[17] ist category laut OpenSky
-        const category = typeof state[17] === 'number' ? state[17] : null;
-        if (category !== null && CATEGORY_ALLOWLIST.size > 0 && !CATEGORY_ALLOWLIST.has(category)) {
-          return false;
-        }
-        
-        const distance = calculateDistance(
-          config.coordinates.lat, config.coordinates.lon,
-          state[6], state[5]
-        );
-        
-        return distance <= config.radius;
-      })
+    const states = response.data.states || [];
+    if (metrics) metrics.api_total = states.length;
+
+    // Erst Radius filtern und mitzählen
+    let inRadiusStates = [];
+    for (const state of states) {
+      if (!state[5] || !state[6]) continue; // keine Koordinaten
+      const distance = calculateDistance(
+        config.coordinates.lat, config.coordinates.lon,
+        state[6], state[5]
+      );
+      if (distance <= config.radius) inRadiusStates.push(state);
+    }
+    if (metrics) metrics.in_radius = inRadiusStates.length;
+
+    // Kategorie-Filter anwenden und "rausgefiltert" zählen
+    let filteredOut = 0;
+    const eligibleStates = inRadiusStates.filter(state => {
+      const category = typeof state[17] === 'number' ? state[17] : null;
+      const allowed = category === null || CATEGORY_ALLOWLIST.size === 0 || CATEGORY_ALLOWLIST.has(category);
+      if (!allowed) filteredOut += 1;
+      return allowed;
+    });
+    if (metrics) metrics.filtered_out = filteredOut;
+
+    let aircraft = eligibleStates
       .map(state => {
         const distance = calculateDistance(
           config.coordinates.lat, config.coordinates.lon,
@@ -641,19 +651,13 @@ async function getAircraftInAirspace() {
           meta = { firstTime: currentTime, status, direction };
           firstContactData[callsignRaw] = meta;
         }
-        // Sichtung in diesem Poll
-        // meta.lastSeenIso = new Date().toISOString(); // Entfernt
-        // Wenn aktiv, letzte Aktivzeit aktualisieren
         if (status === 'Im Luftraum') {
-          // meta.lastActiveIso = meta.lastSeenIso; // Entfernt
           if (!meta.direction || meta.direction === '-') {
             meta.direction = direction; // Richtung nur beim ersten Mal setzen
           }
         }
         // Status speichern
-        const prev = meta.status;
         meta.status = status;
-        // Kein Löschen mehr bei Wechsel auf Vergangen – bleibt in first_contacts
         
         if (supabase) {
           saveFirstContactToDB(callsignRaw, meta);
@@ -673,15 +677,13 @@ async function getAircraftInAirspace() {
         };
       });
 
-    // Set der aktuell gesehenen Callsigns
+    // Gesehen-Set der aktuellen Auflistung
     const seenNow = new Set(aircraft.map(a => a.code || a.callsign));
-    // Für alle bisher als aktiv geführten Flüge, die jetzt fehlen: auf "Vergangen" setzen und in recent_past aufnehmen
+    // Markiere fehlende als Vergangen (persistiert)
     for (const [cs, meta] of Object.entries(firstContactData)) {
       if (typeof meta !== 'object') continue;
       if (meta.status === 'Im Luftraum' && !seenNow.has(cs)) {
-        // Als vergangen markieren (nicht löschen)
         meta.status = 'Vergangen';
-        // lastActiveIso bleibt wie gesetzt, lastSeenIso bleibt letzte Sichtung
         if (supabase) {
           saveFirstContactToDB(cs, meta);
         }
@@ -701,13 +703,12 @@ async function getAircraftInAirspace() {
       saveFirstContactData();
     }
 
-    // Flüge, die nicht mehr in der API sind, aber kürzlich aktiv waren, ergänzen und als "Vergangen" listen
+    // Vergangene ergänzen
     const augmented = aircraft
       .concat(
         Object.entries(firstContactData)
           .filter(([cs, meta]) => typeof meta === 'object')
           .filter(([cs, meta]) => {
-            // nicht doppelt, wenn schon in aktueller Liste
             const exists = aircraft.some(a => a.callsign === cs);
             return meta.status === 'Vergangen' && !exists;
           })
@@ -715,7 +716,7 @@ async function getAircraftInAirspace() {
             time: formatTimeForDisplay(meta.firstTime),
             callsign: displayNameForCallsign(cs),
             code: cs,
-            direction: meta.direction || '-', // Gespeicherte Richtung verwenden
+            direction: meta.direction || '-',
             status: 'Vergangen',
             altitude: 0,
             speed: 0,
@@ -725,33 +726,31 @@ async function getAircraftInAirspace() {
 
     aircraft = augmented;
 
-      // Doppelte entfernen (bevorzugt aktuelle Einträge)
-      const seenCallsigns = new Set();
-      aircraft = aircraft.filter(item => {
-        const callsign = item.code || item.callsign;
-        if (seenCallsigns.has(callsign)) {
-          const existing = aircraft.find(a => (a.code || a.callsign) === callsign);
-          if (existing && existing.status === 'Im Luftraum' && item.status !== 'Im Luftraum') {
-            return false;
-          }
+    // Dedupe, Sort, Slice
+    const seenCallsigns = new Set();
+    aircraft = aircraft.filter(item => {
+      const callsign = item.code || item.callsign;
+      if (seenCallsigns.has(callsign)) {
+        const existing = aircraft.find(a => (a.code || a.callsign) === callsign);
+        if (existing && existing.status === 'Im Luftraum' && item.status !== 'Im Luftraum') {
+          return false;
         }
-        seenCallsigns.add(callsign);
-        return true;
-      });
-      // Retention: Vergangene Flüge werden nicht zeitbasiert ausgeblendet; Cleaner begrenzt DB auf letzte N
-      aircraft = aircraft.sort((a, b) => {
-        // Sortierung: Im Luftraum zuerst, dann nach Uhrzeit (neueste zuerst)
-        if (a.status === 'Im Luftraum' && b.status !== 'Im Luftraum') return -1;
-        if (a.status !== 'Im Luftraum' && b.status === 'Im Luftraum') return 1;
-        const timeToMinutes = (timeStr) => {
-          if (!timeStr || typeof timeStr !== 'string') return 0;
-          const [hours, minutes] = timeStr.split(':').map(Number);
-          return (hours || 0) * 60 + (minutes || 0);
-        };
-        const aMinutes = timeToMinutes(a.time);
-        const bMinutes = timeToMinutes(b.time);
-        return bMinutes - aMinutes;
-      }).slice(0, appConfig.filtering?.maxDisplayCount || 7);
+      }
+      seenCallsigns.add(callsign);
+      return true;
+    });
+    aircraft = aircraft.sort((a, b) => {
+      if ((a.status || '').startsWith('Im Luftraum') && !(b.status || '').startsWith('Im Luftraum')) return -1;
+      if (!(a.status || '').startsWith('Im Luftraum') && (b.status || '').startsWith('Im Luftraum')) return 1;
+      const timeToMinutes = (timeStr) => {
+        if (!timeStr || typeof timeStr !== 'string') return 0;
+        const [hours, minutes] = timeStr.split(':').map(Number);
+        return (hours || 0) * 60 + (minutes || 0);
+      };
+      const aMinutes = timeToMinutes(a.time);
+      const bMinutes = timeToMinutes(b.time);
+      return bMinutes - aMinutes;
+    }).slice(0, appConfig.filtering?.maxDisplayCount || 7);
 
     return aircraft;
   } catch (error) {
@@ -875,16 +874,19 @@ app.get('/api/poll', async (req, res) => {
     cache.del('lastRequestTime');
     pollWriteCount = 0;
     pollWriteTrack = true;
-    const result = await getAircraftInAirspace();
+    const metrics = { api_total: 0, in_radius: 0, filtered_out: 0 };
+    const result = await getAircraftInAirspace(metrics);
     pollWriteTrack = false;
     const snapshot = supabase ? (await fetchAircraftSnapshotFromDB()) || [] : result || [];
     lastCronPoll.timestamp = new Date().toISOString();
-    lastCronPoll.seen = Array.isArray(result) ? result.length : 0; // Größe der verarbeiteten Liste
-    lastCronPoll.saved = pollWriteCount; // tatsächliche Upserts
-    lastCronPoll.found = lastCronPoll.saved; // "gefunden" = neue/aktualisierte Einträge
+    lastCronPoll.seen = metrics.in_radius; // im Radius gefunden
+    lastCronPoll.saved = pollWriteCount;   // gespeichert/aktualisiert
+    lastCronPoll.found = lastCronPoll.saved; // neue/aktualisierte
     lastCronPoll.snapshot = Array.isArray(snapshot) ? snapshot.length : 0;
+    lastCronPoll.filtered_out = metrics.filtered_out;
+    lastCronPoll.api_total = metrics.api_total;
     lastCronPoll.error = null;
-    res.json({ ok: true, seen: lastCronPoll.seen, found: lastCronPoll.found, saved: lastCronPoll.saved, snapshot: lastCronPoll.snapshot, timestamp: lastCronPoll.timestamp, writeEnabled: WRITE_ENABLED });
+    res.json({ ok: true, api_total: metrics.api_total, in_radius: metrics.in_radius, filtered_out: metrics.filtered_out, saved: lastCronPoll.saved, snapshot: lastCronPoll.snapshot, timestamp: lastCronPoll.timestamp, writeEnabled: WRITE_ENABLED });
   } catch (e) {
     console.error('Poll Fehler:', e);
     pollWriteTrack = false;
