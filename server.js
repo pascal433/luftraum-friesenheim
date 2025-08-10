@@ -10,8 +10,17 @@ require('dotenv').config();
 // Lade Konfiguration (optional für Serverless)
 let appConfig = {};
 try {
-  const configFile = './config.json';
-  if (fs.existsSync(configFile)) {
+  const configPaths = ['./config.json', 'config.json', process.cwd() + '/config.json'];
+  let configFile = null;
+  
+  for (const path of configPaths) {
+    if (fs.existsSync(path)) {
+      configFile = path;
+      break;
+    }
+  }
+  
+  if (configFile) {
     appConfig = JSON.parse(fs.readFileSync(configFile, 'utf8'));
     console.log('✅ Konfiguration geladen aus config.json');
   } else {
@@ -278,14 +287,26 @@ const OPENSKY_BASE_URL = 'https://opensky-network.org/api';
 const OPENSKY_AUTH_URL = 'https://auth.opensky-network.org/auth/realms/opensky-network/protocol/openid-connect/token';
 
 // Airline Codes Mapping (Prefix -> Airline Name)
-const airlinesFile = 'airlines.json';
 let airlineCodes = {};
 try {
-  if (fs.existsSync(airlinesFile)) {
+  const airlinePaths = ['./airlines.json', 'airlines.json', process.cwd() + '/airlines.json'];
+  let airlinesFile = null;
+  
+  for (const path of airlinePaths) {
+    if (fs.existsSync(path)) {
+      airlinesFile = path;
+      break;
+    }
+  }
+  
+  if (airlinesFile) {
     airlineCodes = JSON.parse(fs.readFileSync(airlinesFile, 'utf8'));
+    console.log('✅ Airlines geladen aus airlines.json');
+  } else {
+    console.log('⚠️ airlines.json nicht gefunden, verwende leere Mapping-Tabelle');
   }
 } catch (e) {
-  console.warn('Konnte airlines.json nicht laden, verwende leere Mapping-Tabelle');
+  console.warn('⚠️ airlines.json Fehler, verwende leere Mapping-Tabelle:', e.message);
   airlineCodes = {};
 }
 
