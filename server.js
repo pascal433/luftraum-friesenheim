@@ -7,28 +7,27 @@ const fs = require('fs');
 const { createClient } = require('@supabase/supabase-js');
 require('dotenv').config();
 
-// Lade Konfiguration (optional für Serverless)
-let appConfig = {};
-try {
-  const configPaths = ['./config.json', 'config.json', process.cwd() + '/config.json'];
-  let configFile = null;
-  
-  for (const path of configPaths) {
-    if (fs.existsSync(path)) {
-      configFile = path;
-      break;
-    }
+// Konfiguration aus Environment Variables laden
+const appConfig = {
+  display: {
+    title: process.env.DISPLAY_TITLE || 'Luftraum Friesenheim (Baden)',
+    radius: parseInt(process.env.RADIUS) || 10
+  },
+  monitoring: {
+    updateInterval: parseInt(process.env.UPDATE_INTERVAL) || 6000,
+    cacheTtl: parseInt(process.env.CACHE_TTL) || 60000
+  },
+  filtering: {
+    maxDisplayCount: parseInt(process.env.MAX_DISPLAY_COUNT) || 7,
+    categoryAllowlist: process.env.CATEGORY_ALLOWLIST?.split(',').map(Number) || [3, 4, 5, 6]
+  },
+  data: {
+    maxFirstContacts: parseInt(process.env.MAX_FIRST_CONTACTS) || 100,
+    maxRecentPast: parseInt(process.env.MAX_RECENT_PAST) || 7
   }
-  
-  if (configFile) {
-    appConfig = JSON.parse(fs.readFileSync(configFile, 'utf8'));
-    console.log('✅ Konfiguration geladen aus config.json');
-  } else {
-    console.log('⚠️ config.json nicht gefunden, verwende Defaults');
-  }
-} catch (error) {
-  console.log('⚠️ config.json Fehler, verwende Defaults:', error.message);
-}
+};
+
+console.log('✅ Konfiguration aus Environment Variables geladen');
 
 const app = express();
 const PORT = process.env.PORT || appConfig.display?.port || 3000;
