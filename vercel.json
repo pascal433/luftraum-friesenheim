@@ -8,6 +8,14 @@
     {
       "src": "public/**",
       "use": "@vercel/static"
+    },
+    {
+      "src": "config.json",
+      "use": "@vercel/static"
+    },
+    {
+      "src": "airlines.json",
+      "use": "@vercel/static"
     }
   ],
   "routes": [
@@ -22,6 +30,14 @@
     {
       "src": "/script.js", 
       "dest": "/public/script.js"
+    },
+    {
+      "src": "/config.json",
+      "dest": "/config.json"
+    },
+    {
+      "src": "/airlines.json",
+      "dest": "/airlines.json"
     },
     {
       "src": "/(.*)",
