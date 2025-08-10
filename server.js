@@ -718,7 +718,7 @@ async function getAircraftInAirspace(metrics) {
           time: formatTimeForDisplay(meta.firstTime), // Erstkontakt Zeit verwenden
           callsign: callsign,
           code: callsignRaw,
-          direction: direction, // Aktuelle Richtung
+          direction: meta.direction || direction, // Gespeicherte Richtung bevorzugen
           status: status,
           altitude: state[7] || 0,
           speed: state[9] || 0,
