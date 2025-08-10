@@ -475,34 +475,9 @@ async function getOpenSkyToken(forceRefresh = false) {
       return null;
     }
   } catch (error) {
-    // Bei Timeout-Fehlern: einmalig retry nach kurzer Pause
-    if (error.code === 'ETIMEDOUT' || error.code === 'ECONNRESET') {
-      console.warn(`⏰ Netzwerk-Timeout (${error.code}), retry in 5s...`);
-      try {
-        await new Promise(resolve => setTimeout(resolve, 5000));
-        const retryResponse = await axios.post(OPENSKY_AUTH_URL, 
-          `grant_type=client_credentials&client_id=${clientId}&client_secret=${clientSecret}`,
-          {
-            headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-            timeout: 30000 // Kürzerer Timeout für Retry
-          }
-        );
-        if (retryResponse.data && retryResponse.data.access_token) {
-          const token = retryResponse.data.access_token;
-          const expiresIn = parseInt(retryResponse.data.expires_in || '1800', 10);
-          const ttl = Math.max(300, expiresIn - 60);
-          tokenCache.set('access_token', token, ttl);
-          await saveTokenToDB(token, expiresIn);
-          console.log('✅ OAuth Token retry erfolgreich');
-          return token;
-        }
-      } catch (retryError) {
-        console.error('❌ OAuth retry fehlgeschlagen:', retryError.message);
-      }
-    }
-    
+    // Kein aggressives Retry mehr - einfach loggen und fallback verwenden
     const errorMsg = `OAuth Token Fehler: ${error.message} (${error.code || 'unknown'})`;
-    console.error(errorMsg);
+    console.warn('⚠️', errorMsg);
     if (lastCronPoll) lastCronPoll.error = errorMsg;
     return null;
   }
@@ -1009,6 +984,8 @@ app.get('/api/poll', async (req, res) => {
     res.status(500).json({ ok: false, error: lastCronPoll.error });
   }
 });
+
+
 
 
 // Debug endpoint for Render troubleshooting
