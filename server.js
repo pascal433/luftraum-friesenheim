@@ -878,10 +878,15 @@ app.get('/api/poll', async (req, res) => {
     // Force refresh by clearing rate guard cache key to avoid skipping
     cache.del('lastRequestTime');
     const result = await getAircraftInAirspace();
-    res.json({ ok: true, updated: Array.isArray(result) ? result.length : 0, timestamp: new Date().toISOString(), writeEnabled: WRITE_ENABLED });
+    lastCronPoll.timestamp = new Date().toISOString();
+    lastCronPoll.found = Array.isArray(result) ? result.length : 0;
+    lastCronPoll.error = null;
+    res.json({ ok: true, updated: lastCronPoll.found, timestamp: lastCronPoll.timestamp, writeEnabled: WRITE_ENABLED });
   } catch (e) {
     console.error('Poll Fehler:', e);
-    res.status(500).json({ ok: false, error: e?.message || String(e) });
+    lastCronPoll.timestamp = new Date().toISOString();
+    lastCronPoll.error = e?.message || String(e);
+    res.status(500).json({ ok: false, error: lastCronPoll.error });
   }
 });
 
@@ -899,6 +904,7 @@ app.get('/api/debug', (req, res) => {
     },
     firstContactsCount: Object.keys(firstContactData).length,
     pastCount: Object.values(firstContactData).filter(m => m && m.status === 'Vergangen').length,
+    lastCronPoll,
     timeDebug: {
       currentTime: new Date().toLocaleTimeString('de-DE'),
       currentTimeISO: new Date().toISOString(),
