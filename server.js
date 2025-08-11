@@ -590,6 +590,11 @@ function nowHHMM() {
   return `${h}:${m}`;
 }
 
+function nowISO() {
+  const offsetMs = (parseInt(process.env.TIME_OFFSET_HOURS || '0', 10)) * 3600000;
+  return new Date(Date.now() + offsetMs).toISOString();
+}
+
 // Tracking für letzten Cron-Poll
 let lastCronPoll = { timestamp: null, seen: 0, found: 0, saved: 0, snapshot: 0, error: null };
 let pollWriteTrack = false;
@@ -737,7 +742,7 @@ async function getAircraftInAirspace(metrics) {
         // Erstkontakt / Status-Timeline verwalten (persistiert)
         let meta = firstContactData[callsignRaw];
         if (!meta) {
-          meta = { firstTime: currentTime, status, direction };
+          meta = { firstTime: nowISO(), status, direction };
           firstContactData[callsignRaw] = meta;
         }
         if (status === 'Im Luftraum') {
@@ -756,6 +761,7 @@ async function getAircraftInAirspace(metrics) {
         
         return {
           time: formatTimeForDisplay(meta.firstTime), // Erstkontakt Zeit verwenden
+          timestamp: meta.firstTime, // Für Sortierung
           callsign: callsign,
           code: callsignRaw,
           direction: meta.direction || direction, // Gespeicherte Richtung bevorzugen
@@ -803,6 +809,7 @@ async function getAircraftInAirspace(metrics) {
           })
           .map(([cs, meta]) => ({
             time: formatTimeForDisplay(meta.firstTime),
+            timestamp: meta.firstTime,
             callsign: displayNameForCallsign(cs),
             code: cs,
             direction: meta.direction || '-',
@@ -831,14 +838,10 @@ async function getAircraftInAirspace(metrics) {
     aircraft = aircraft.sort((a, b) => {
       if ((a.status || '').startsWith('Im Luftraum') && !(b.status || '').startsWith('Im Luftraum')) return -1;
       if (!(a.status || '').startsWith('Im Luftraum') && (b.status || '').startsWith('Im Luftraum')) return 1;
-      const timeToMinutes = (timeStr) => {
-        if (!timeStr || typeof timeStr !== 'string') return 0;
-        const [hours, minutes] = timeStr.split(':').map(Number);
-        return (hours || 0) * 60 + (minutes || 0);
-      };
-      const aMinutes = timeToMinutes(a.time);
-      const bMinutes = timeToMinutes(b.time);
-      return bMinutes - aMinutes;
+      // Sortiere nach Timestamp (neueste zuerst)
+      const aTime = new Date(a.timestamp || 0).getTime();
+      const bTime = new Date(b.timestamp || 0).getTime();
+      return bTime - aTime;
     }).slice(0, appConfig.filtering?.maxDisplayCount || 7);
 
     return aircraft;
@@ -889,6 +892,7 @@ async function fetchAircraftSnapshotFromDB() {
       const display = r.display_name || r.callsign;
       return {
         time: formatTimeForDisplay(r.first_time),
+        timestamp: r.first_time,
         callsign: display,
         code: r.callsign,
         direction: r.direction || '-',
@@ -898,15 +902,13 @@ async function fetchAircraftSnapshotFromDB() {
         distance: 0
       };
     });
-    const timeToMinutes = (timeStr) => {
-      if (!timeStr || typeof timeStr !== 'string') return 0;
-      const [hours, minutes] = timeStr.split(':').map(Number);
-      return (hours || 0) * 60 + (minutes || 0);
-    };
     list = list.sort((a, b) => {
       if ((a.status || '').startsWith('Im Luftraum') && !(b.status || '').startsWith('Im Luftraum')) return -1;
       if (!(a.status || '').startsWith('Im Luftraum') && (b.status || '').startsWith('Im Luftraum')) return 1;
-      return timeToMinutes(b.time) - timeToMinutes(a.time);
+      // Sortiere nach Timestamp (neueste zuerst)
+      const aTime = new Date(a.timestamp || 0).getTime();
+      const bTime = new Date(b.timestamp || 0).getTime();
+      return bTime - aTime;
     }).slice(0, appConfig.filtering?.maxDisplayCount || 7);
     return list;
   } catch (e) {
