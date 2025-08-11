@@ -562,19 +562,19 @@ function degreesToDirection(degrees) {
   return directions[index];
 }
 
-// Hilfsfunktion: ISO- oder HH:MM-Zeit zu HH:MM Format konvertieren (mit Stunden-Offset)
+// Hilfsfunktion: ISO-Zeit zu HH:MM Format konvertieren (OHNE zusätzlichen Offset, da DB bereits lokale Zeit enthält)
 function formatTimeForDisplay(value) {
   if (!value) return '-';
   try {
+    // Falls bereits HH:MM Format
     if (typeof value === 'string' && /^\d{1,2}:\d{2}$/.test(value.trim())) {
       return value.trim();
     }
+    // ISO Timestamp zu HH:MM (ohne zusätzlichen Offset, da nowISO() bereits Offset angewendet hat)
     const base = new Date(value);
     if (isNaN(base.getTime())) return '-';
-    const offsetMs = (parseInt(process.env.TIME_OFFSET_HOURS || '0', 10)) * 3600000;
-    const d = new Date(base.getTime() + offsetMs);
-    const h = String(d.getUTCHours()).padStart(2, '0');
-    const m = String(d.getUTCMinutes()).padStart(2, '0');
+    const h = String(base.getUTCHours()).padStart(2, '0');
+    const m = String(base.getUTCMinutes()).padStart(2, '0');
     return `${h}:${m}`;
   } catch (error) {
     console.error('Fehler beim Formatieren der Zeit:', error);
